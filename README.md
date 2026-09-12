@@ -7,9 +7,9 @@ nobody picks up, and the caller books somewhere else. A receptionist costs more 
 missed calls — and still goes home at six.
 
 This answers every call, at any hour, and does the actual work: books, reschedules and
-cancels against a real calendar, quotes real prices from the doctor's own uploaded
-documents, issues a patient code the caller can remember, and hands over to a human the
-moment someone needs one.
+cancels against a real calendar, answers questions about the clinic from the doctor's own
+uploaded documents, issues a patient code the caller can remember, and hands over to a
+human the moment someone needs one.
 
 It is deliberately, strictly administrative. Asked *"my ear hurts, what's wrong with me?"*
 it does not guess. It declines and escalates.
