@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+build/
+dist/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Test / tooling caches
+.pytest_cache/
+.hypothesis/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Deployment source bundle, built in memory and uploaded to S3. Never a
+# committed artifact: it is generated from the tree it would sit inside.
+*.tar.gz
+
+# Local voice-test artifacts. `talk_to_agent.py --save-audio` writes the agent's
+# spoken reply here for listening; the system itself never persists audio, and
+# recorded speech should not end up in version control.
+*.wav
+*.pcm

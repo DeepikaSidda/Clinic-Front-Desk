@@ -1,0 +1,109 @@
+{
+  "Comment": [
+    "Least-privilege permissions for the AgentCore Runtime execution role that",
+    "runs the Clinic Front-Desk container. Replace ACCOUNT_ID, REGION, and",
+    "TABLE_NAME before attaching. Attach alongside a trust policy allowing",
+    "bedrock-agentcore.amazonaws.com to assume the role.",
+    "Scoped deliberately: the Data_Layer only ever touches its own single table",
+    "and its four GSIs, and the voice layer only invokes the Nova Sonic model."
+  ],
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "DataLayerSingleTableAccess",
+      "Effect": "Allow",
+      "Action": [
+        "dynamodb:GetItem",
+        "dynamodb:PutItem",
+        "dynamodb:UpdateItem",
+        "dynamodb:DeleteItem",
+        "dynamodb:Query",
+        "dynamodb:Scan",
+        "dynamodb:BatchGetItem",
+        "dynamodb:BatchWriteItem",
+        "dynamodb:TransactGetItems",
+        "dynamodb:TransactWriteItems",
+        "dynamodb:DescribeTable"
+      ],
+      "Resource": [
+        "arn:aws:dynamodb:REGION:ACCOUNT_ID:table/TABLE_NAME",
+        "arn:aws:dynamodb:REGION:ACCOUNT_ID:table/TABLE_NAME/index/*"
+      ]
+    },
+    {
+      "Sid": "NovaSonicBidirectionalStreaming",
+      "Effect": "Allow",
+      "Action": [
+        "bedrock:InvokeModel",
+        "bedrock:InvokeModelWithResponseStream",
+        "bedrock:InvokeModelWithBidirectionalStream"
+      ],
+      "ResourceComment": [
+        "Both real Nova Sonic ids. Note the v2 model is 'amazon.nova-2-sonic-v1:0',",
+        "NOT 'amazon.nova-sonic-v2:0' — the latter does not exist, and granting it",
+        "instead of the real v2 id fails the voice path with AccessDeniedException.",
+        "These must match strands NOVA_SONIC_V1_MODEL_ID / NOVA_SONIC_V2_MODEL_ID."
+      ],
+      "Resource": [
+        "arn:aws:bedrock:REGION::foundation-model/amazon.nova-2-sonic-v1:0",
+        "arn:aws:bedrock:REGION::foundation-model/amazon.nova-sonic-v1:0"
+      ]
+    },
+    {
+      "SidComment": [
+        "Two prefixes, both in CLINIC_RECORDINGS_BUCKET / CLINIC_DOCUMENTS_BUCKET.",
+        "call-recordings/ is call audio, written only when CLINIC_RECORDINGS_BUCKET",
+        "is set. clinic-documents/ holds the clinic briefing the agent reads at the",
+        "start of every session — without GetObject on it the call still connects",
+        "but the agent answers with no knowledge of the clinic.",
+        "Deliberately grants no s3:DeleteObject: audio is expired by a bucket",
+        "lifecycle rule, not by the application.",
+        "Replace RECORDINGS_BUCKET."
+      ],
+      "Sid": "CallRecordingsAndDocuments",
+      "Effect": "Allow",
+      "Action": ["s3:PutObject", "s3:GetObject", "s3:ListBucket"],
+      "Resource": [
+        "arn:aws:s3:::RECORDINGS_BUCKET",
+        "arn:aws:s3:::RECORDINGS_BUCKET/call-recordings/*",
+        "arn:aws:s3:::RECORDINGS_BUCKET/clinic-documents/*"
+      ]
+    },
+    {
+      "SidComment": [
+        "Only needed when recordings use SSE-KMS (CLINIC_RECORDINGS_SSE=aws:kms).",
+        "Replace REGION, ACCOUNT_ID, and KMS_KEY_ID, or drop this statement when",
+        "using the default AES256 (S3-managed) encryption."
+      ],
+      "Sid": "CallRecordingsKms",
+      "Effect": "Allow",
+      "Action": ["kms:GenerateDataKey", "kms:Decrypt"],
+      "Resource": "arn:aws:kms:REGION:ACCOUNT_ID:key/KMS_KEY_ID"
+    },
+    {
+      "Sid": "ContainerImagePull",
+      "Effect": "Allow",
+      "Action": [
+        "ecr:GetAuthorizationToken",
+        "ecr:BatchCheckLayerAvailability",
+        "ecr:GetDownloadUrlForLayer",
+        "ecr:BatchGetImage"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "Observability",
+      "Effect": "Allow",
+      "Action": [
+        "logs:CreateLogGroup",
+        "logs:CreateLogStream",
+        "logs:PutLogEvents",
+        "logs:DescribeLogStreams",
+        "xray:PutTraceSegments",
+        "xray:PutTelemetryRecords",
+        "cloudwatch:PutMetricData"
+      ],
+      "Resource": "*"
+    }
+  ]
+}

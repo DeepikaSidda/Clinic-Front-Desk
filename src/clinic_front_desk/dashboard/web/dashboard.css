@@ -1,0 +1,2880 @@
+/*
+ * Clinic Front-Desk dashboard design system.
+ *
+ * Styles the server-rendered partials in this directory. Every selector here
+ * targets a class or data-attribute the Python renderers already emit — no
+ * markup changes were made to fit the CSS, so the view-model tests keep passing.
+ *
+ * Structure:
+ *   1. Design tokens (colour, type, space, elevation) + dark scheme
+ *   2. Reset and base elements
+ *   3. Layout: app chrome, shell, view regions
+ *   4. Components: decisions feed, schedule, activity log, metrics strip
+ *   5. Onboarding wizard
+ *   6. States: empty, error, access-denied, live-connection
+ *   7. Accessibility + responsive
+ *
+ * Conventions: a single accent hue, one 4px spacing scale, `light-dark()`-free
+ * theming via a `[data-theme]` override so the OS preference is respected by
+ * default but overridable. No build step, no framework.
+ */
+
+/* ========================================================================== *
+ * 1. Design tokens
+ * ========================================================================== */
+
+:root {
+  color-scheme: light dark;
+
+  /* Neutral ramp (slate). */
+  --c-bg: #f6f8fb;
+  --c-surface: #ffffff;
+  --c-surface-2: #f2f5f9;
+  --c-surface-3: #e8edf4;
+  --c-border: #dde4ed;
+  --c-border-strong: #c3cede;
+  --c-text: #16202c;
+  --c-text-muted: #5b6a7d;
+  --c-text-subtle: #7d8b9d;
+
+  /* Accent: clinical teal. Used for primary actions and focus. */
+  --c-accent: #0f766e;
+  --c-accent-hover: #0d655e;
+  --c-accent-soft: #d7f0ec;
+  --c-accent-text: #ffffff;
+
+  /* Semantic. */
+  --c-positive: #16794a;
+  --c-positive-soft: #dcf3e7;
+  --c-negative: #b3251e;
+  --c-negative-soft: #fde7e5;
+  --c-warning: #92590b;
+  --c-warning-soft: #fdf0d5;
+  --c-info: #1c5c9c;
+  --c-info-soft: #e2eefb;
+
+  /* Type. */
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+    "Liberation Mono", monospace;
+  --fs-xs: 0.75rem;
+  --fs-sm: 0.8125rem;
+  --fs-base: 0.9375rem;
+  --fs-md: 1.0625rem;
+  --fs-lg: 1.375rem;
+  --fs-xl: 1.75rem;
+  --fs-metric: 2.25rem;
+
+  /* Space scale (4px base). */
+  --sp-1: 0.25rem;
+  --sp-2: 0.5rem;
+  --sp-3: 0.75rem;
+  --sp-4: 1rem;
+  --sp-5: 1.25rem;
+  --sp-6: 1.5rem;
+  --sp-8: 2rem;
+  --sp-10: 2.5rem;
+
+  /* Shape + elevation. */
+  --radius-sm: 6px;
+  --radius: 10px;
+  --radius-lg: 14px;
+  --shadow-sm: 0 1px 2px rgb(16 32 44 / 6%), 0 1px 3px rgb(16 32 44 / 4%);
+  --shadow: 0 1px 3px rgb(16 32 44 / 8%), 0 8px 24px -8px rgb(16 32 44 / 12%);
+  --shadow-lg: 0 2px 8px rgb(16 32 44 / 8%), 0 16px 40px -12px rgb(16 32 44 / 18%);
+
+  --ring: 0 0 0 3px color-mix(in srgb, var(--c-accent) 35%, transparent);
+  --transition: 140ms cubic-bezier(0.32, 0.72, 0, 1);
+
+  /* Depth and character.
+   *
+   * The palette was correct and completely flat — every surface the same value,
+   * the accent almost never used, nothing to rest your eye on. These give the
+   * pages somewhere to sit: a tinted ambient wash behind the content, a gradient
+   * for the few elements that should feel like objects rather than boxes, and a
+   * hairline that reads as a fold rather than a border. */
+  --grad-accent: linear-gradient(
+    135deg,
+    var(--c-accent) 0%,
+    color-mix(in srgb, var(--c-accent) 62%, var(--c-info)) 100%
+  );
+  --grad-surface: linear-gradient(
+    180deg,
+    var(--c-surface) 0%,
+    color-mix(in srgb, var(--c-surface) 88%, var(--c-surface-2)) 100%
+  );
+  --wash: radial-gradient(
+      1200px 620px at 12% -8%,
+      color-mix(in srgb, var(--c-accent) 11%, transparent) 0%,
+      transparent 62%
+    ),
+    radial-gradient(
+      900px 520px at 96% 4%,
+      color-mix(in srgb, var(--c-info) 10%, transparent) 0%,
+      transparent 58%
+    );
+  --hairline: color-mix(in srgb, var(--c-border) 70%, transparent);
+  --glass: color-mix(in srgb, var(--c-surface) 78%, transparent);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --c-bg: #0e141b;
+    --c-surface: #161f29;
+    --c-surface-2: #1c2833;
+    --c-surface-3: #24323f;
+    --c-border: #2a3947;
+    --c-border-strong: #3a4c5c;
+    --c-text: #e8eef5;
+    --c-text-muted: #a3b2c2;
+    --c-text-subtle: #8496a8;
+
+    --c-accent: #2dd4bf;
+    --c-accent-hover: #5ae1d0;
+    --c-accent-soft: #123c39;
+    --c-accent-text: #06231f;
+
+    --c-positive: #5ed6a0;
+    --c-positive-soft: #123526;
+    --c-negative: #ff9d95;
+    --c-negative-soft: #3d1c19;
+    --c-warning: #e8bf72;
+    --c-warning-soft: #382a12;
+    --c-info: #8dc0f0;
+    --c-info-soft: #14293d;
+
+    --shadow-sm: 0 1px 2px rgb(0 0 0 / 40%);
+    --shadow: 0 1px 3px rgb(0 0 0 / 40%), 0 8px 24px -8px rgb(0 0 0 / 50%);
+    --shadow-lg: 0 2px 8px rgb(0 0 0 / 45%), 0 16px 40px -12px rgb(0 0 0 / 60%);
+  }
+}
+
+/* Explicit override wins over the OS preference. */
+[data-theme="light"] {
+  color-scheme: light;
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+  --c-bg: #0e141b;
+  --c-surface: #161f29;
+  --c-surface-2: #1c2833;
+  --c-surface-3: #24323f;
+  --c-border: #2a3947;
+  --c-border-strong: #3a4c5c;
+  --c-text: #e8eef5;
+  --c-text-muted: #a3b2c2;
+  --c-text-subtle: #8496a8;
+  --c-accent: #2dd4bf;
+  --c-accent-hover: #5ae1d0;
+  --c-accent-soft: #123c39;
+  --c-accent-text: #06231f;
+  --c-positive: #5ed6a0;
+  --c-positive-soft: #123526;
+  --c-negative: #ff9d95;
+  --c-negative-soft: #3d1c19;
+  --c-warning: #e8bf72;
+  --c-warning-soft: #382a12;
+  --c-info: #8dc0f0;
+  --c-info-soft: #14293d;
+}
+
+/* ========================================================================== *
+ * 2. Reset and base
+ * ========================================================================== */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  /* The wash sits behind everything and does not scroll away, so a long page of
+     slots still has a horizon rather than ending in flat grey. */
+  background: var(--wash), var(--c-bg);
+  background-attachment: fixed;
+  color: var(--c-text);
+  font-family: var(--font-sans);
+  font-size: var(--fs-base);
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+h1,
+h2,
+h3 {
+  margin: 0;
+  line-height: 1.25;
+  letter-spacing: -0.011em;
+  font-weight: 650;
+}
+
+p {
+  margin: 0;
+}
+
+ul,
+ol,
+dl {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* Buttons get the ring instead of an outline so rounded corners stay clean. */
+button:focus-visible,
+select:focus-visible,
+input:focus-visible,
+textarea:focus-visible {
+  outline: none;
+  box-shadow: var(--ring);
+  border-color: var(--c-accent);
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/*
+ * Shared control primitive. Every selector here is a single class so the variant
+ * rules further down (primary approve, today) can override with one more class
+ * of specificity instead of resorting to !important.
+ */
+.decision-card__approve,
+.decision-card__dismiss,
+.schedule-view__nav,
+.schedule-view__today,
+.wizard-submit,
+[data-action="add-service"],
+[data-action="add-provider"],
+[data-action="remove-service"],
+[data-action="remove-provider"] {
+  appearance: none;
+  border: 1px solid var(--c-border-strong);
+  background: var(--c-surface);
+  color: var(--c-text);
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--radius-sm);
+  font-size: var(--fs-sm);
+  font-weight: 550;
+  cursor: pointer;
+  transition: background var(--transition), border-color var(--transition),
+    transform var(--transition);
+}
+
+.decision-card__approve:hover,
+.decision-card__dismiss:hover,
+.schedule-view__nav:hover,
+.schedule-view__today:hover,
+.wizard-submit:hover,
+[data-action="add-service"]:hover,
+[data-action="add-provider"]:hover {
+  background: var(--c-surface-3);
+  border-color: var(--c-accent);
+}
+
+.decision-card__approve:active,
+.decision-card__dismiss:active,
+.schedule-view__nav:active,
+.schedule-view__today:active,
+.wizard-submit:active {
+  transform: translateY(1px);
+}
+
+input[type="text"],
+input[type="time"],
+input[type="date"],
+input[type="number"],
+select,
+textarea {
+  background: var(--c-surface);
+  border: 1px solid var(--c-border-strong);
+  border-radius: var(--radius-sm);
+  padding: var(--sp-2) var(--sp-3);
+  transition: border-color var(--transition), box-shadow var(--transition);
+}
+
+textarea {
+  min-height: 5.5rem;
+  resize: vertical;
+}
+
+/* ========================================================================== *
+ * 3. Layout
+ * ========================================================================== */
+
+.app-bar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  padding: var(--sp-3) var(--sp-6);
+  background: color-mix(in srgb, var(--c-surface) 88%, transparent);
+  backdrop-filter: saturate(180%) blur(12px);
+  border-bottom: 1px solid var(--c-border);
+}
+
+.app-bar__brand {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  font-weight: 680;
+  font-size: var(--fs-md);
+  letter-spacing: -0.015em;
+}
+
+.app-bar__mark {
+  display: grid;
+  place-items: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 8px;
+  background: var(--c-accent);
+  color: var(--c-accent-text);
+  font-size: var(--fs-sm);
+  font-weight: 700;
+}
+
+.app-bar__spacer {
+  flex: 1;
+}
+
+.app-bar__meta {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  font-size: var(--fs-sm);
+  color: var(--c-text-muted);
+}
+
+.app-bar__role {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-1) var(--sp-3);
+  border-radius: 999px;
+  background: var(--c-accent-soft);
+  color: var(--c-accent);
+  font-weight: 600;
+  font-size: var(--fs-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* Live-connection indicator, driven by data-state from the bootstrap JS. */
+.app-bar__status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--fs-xs);
+  color: var(--c-text-muted);
+}
+
+.app-bar__status::before {
+  content: "";
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: var(--c-text-subtle);
+}
+
+.app-bar__status[data-state="live"]::before {
+  background: var(--c-positive);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--c-positive) 25%, transparent);
+  animation: pulse 2.4s ease-in-out infinite;
+}
+
+.app-bar__status[data-state="reconnecting"]::before {
+  background: var(--c-warning);
+}
+
+.app-bar__status[data-state="offline"]::before {
+  background: var(--c-negative);
+}
+
+@keyframes pulse {
+  50% {
+    box-shadow: 0 0 0 6px color-mix(in srgb, var(--c-positive) 0%, transparent);
+  }
+}
+
+.dashboard-shell {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: var(--sp-6) var(--sp-6) var(--sp-10);
+}
+
+.dashboard-shell__title {
+  font-size: var(--fs-xl);
+  margin-bottom: var(--sp-6);
+}
+
+/*
+ * The shell emits one <section.dashboard-shell__view> per permitted view, in
+ * canonical order (schedule, call-activity, impact-metrics, decisions). Metrics
+ * spans the full width as a summary band; the rest sit in a two-column grid with
+ * the schedule taking the wider column.
+ */
+.dashboard-shell__view {
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  padding: var(--sp-5);
+  min-width: 0;
+}
+
+.dashboard-shell__view-title {
+  font-size: var(--fs-xs);
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--c-text-subtle);
+  margin-bottom: var(--sp-4);
+}
+
+.dashboard-shell__view-body {
+  min-width: 0;
+}
+
+@media (min-width: 1080px) {
+  .dashboard-shell {
+    display: grid;
+    grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
+    gap: var(--sp-5);
+    align-items: start;
+  }
+
+  .dashboard-shell__title,
+  .dashboard-shell__denied,
+  .dashboard-shell__view[data-view="impact_metrics"] {
+    grid-column: 1 / -1;
+  }
+
+  .dashboard-shell__view[data-view="schedule"] {
+    grid-row: span 2;
+  }
+}
+
+@media (max-width: 1079px) {
+  .dashboard-shell {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-5);
+  }
+}
+
+/* Nested component headings are redundant with the region title. */
+.dashboard-shell__view .decisions-feed__title,
+.dashboard-shell__view .call-activity-log__title,
+.dashboard-shell__view .schedule-view__title {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/*
+ * Component roots. Each partial is swapped in wholesale by its controller, so the
+ * root needs `min-width: 0` to stay inside its grid column (grid items default to
+ * min-content width, which long service names would otherwise blow out).
+ */
+.decisions-feed,
+.schedule-view,
+.call-activity-log,
+.impact-metrics-strip {
+  display: block;
+  min-width: 0;
+}
+
+.schedule-view__section {
+  min-width: 0;
+}
+
+.app-bar__clinic-status {
+  display: inline-flex;
+  align-items: center;
+  padding: var(--sp-1) var(--sp-3);
+  border-radius: 999px;
+  background: var(--c-surface-3);
+  font-size: var(--fs-xs);
+  font-weight: 550;
+}
+
+/* ========================================================================== *
+ * 4a. Decisions feed
+ * ========================================================================== */
+
+.decisions-feed__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+.decision-card {
+  position: relative;
+  padding: var(--sp-4);
+  padding-left: calc(var(--sp-4) + 3px);
+  background: var(--c-surface-2);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  animation: card-in 220ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+/* Accent rail marks each card as actionable without extra markup. */
+.decision-card::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: var(--c-accent);
+}
+
+@keyframes card-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+.decision-card__kind {
+  display: inline-block;
+  margin-bottom: var(--sp-2);
+  padding: var(--sp-1) var(--sp-2);
+  border-radius: 999px;
+  background: var(--c-accent-soft);
+  color: var(--c-accent);
+  font-size: var(--fs-xs);
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.decision-card__summary {
+  font-size: var(--fs-md);
+  font-weight: 600;
+  margin-bottom: var(--sp-2);
+  text-wrap: pretty;
+}
+
+.decision-card__action {
+  color: var(--c-text-muted);
+  margin-bottom: var(--sp-3);
+  text-wrap: pretty;
+}
+
+.decision-card__support {
+  font-size: var(--fs-xs);
+  color: var(--c-text-subtle);
+  font-variant-numeric: tabular-nums;
+}
+
+.decision-card__error {
+  margin-top: var(--sp-3);
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--c-negative-soft);
+  color: var(--c-negative);
+  border-radius: var(--radius-sm);
+  font-size: var(--fs-sm);
+  font-weight: 550;
+}
+
+.decision-card__controls {
+  display: flex;
+  gap: var(--sp-2);
+  margin-top: var(--sp-4);
+}
+
+/* Approve is the primary action; the extra class raises specificity over the
+   shared primitive above without needing !important. */
+.decision-card .decision-card__approve {
+  background: var(--c-accent);
+  border-color: var(--c-accent);
+  color: var(--c-accent-text);
+}
+
+.decision-card .decision-card__approve:hover {
+  background: var(--c-accent-hover);
+  border-color: var(--c-accent-hover);
+}
+
+/* ========================================================================== *
+ * 4b. Schedule view
+ * ========================================================================== */
+
+.schedule-view__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-4);
+}
+
+.schedule-view__controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.schedule-view__day-label {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--c-text-subtle);
+}
+
+.schedule-view__controls .schedule-view__today {
+  background: var(--c-accent-soft);
+  border-color: transparent;
+  color: var(--c-accent);
+}
+
+/* Native date input; the shared field rule covers the rest. */
+.schedule-view__day {
+  font-variant-numeric: tabular-nums;
+}
+
+.schedule-view__lists {
+  display: grid;
+  gap: var(--sp-5);
+}
+
+@media (min-width: 720px) {
+  .schedule-view__lists {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.schedule-view__section-title {
+  font-size: var(--fs-xs);
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--c-text-subtle);
+  padding-bottom: var(--sp-2);
+  border-bottom: 1px solid var(--c-border);
+  margin-bottom: var(--sp-3);
+}
+
+.schedule-view__appointment-list,
+.schedule-view__slot-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+/* Row classes below are exactly those emitted by schedule_view.py. */
+.schedule-view__appointment,
+.schedule-view__slot {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: baseline;
+  gap: var(--sp-1) var(--sp-3);
+  padding: var(--sp-3);
+  background: var(--c-surface-2);
+  border: 1px solid var(--c-border);
+  border-left: 3px solid var(--c-info);
+  border-radius: var(--radius-sm);
+  font-size: var(--fs-sm);
+}
+
+.schedule-view__slot {
+  grid-template-columns: auto 1fr;
+  border-left-color: var(--c-positive);
+  background: transparent;
+  border-style: dashed;
+  border-left-style: solid;
+}
+
+/* Times read as data: monospaced and tabular so rows align vertically. */
+.schedule-view__time {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.schedule-view__service {
+  font-weight: 600;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.schedule-view__patient {
+  grid-column: 2;
+  font-size: var(--fs-xs);
+  color: var(--c-text-muted);
+  font-family: var(--font-mono);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* Status pill, coloured from the row's data-status. */
+.schedule-view__status {
+  grid-row: 1;
+  grid-column: 3;
+  justify-self: end;
+  padding: var(--sp-1) var(--sp-2);
+  border-radius: 999px;
+  background: var(--c-surface-3);
+  color: var(--c-text-muted);
+  font-size: var(--fs-xs);
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.schedule-view__appointment[data-status="booked"] .schedule-view__status {
+  background: var(--c-info-soft);
+  color: var(--c-info);
+}
+
+.schedule-view__appointment[data-status="completed"] .schedule-view__status {
+  background: var(--c-positive-soft);
+  color: var(--c-positive);
+}
+
+.schedule-view__appointment[data-status="no_show"] .schedule-view__status {
+  background: var(--c-negative-soft);
+  color: var(--c-negative);
+}
+
+.schedule-view__appointment[data-status="no_show"] {
+  border-left-color: var(--c-negative);
+}
+
+.schedule-view__appointment[data-status="cancelled"] {
+  border-left-color: var(--c-border-strong);
+  opacity: 0.7;
+}
+
+/* Per-list empty rows (distinct from the whole-day empty state). */
+.schedule-view__empty-row {
+  padding: var(--sp-4);
+  text-align: center;
+  color: var(--c-text-subtle);
+  font-size: var(--fs-sm);
+  border: 1px dashed var(--c-border);
+  border-radius: var(--radius-sm);
+}
+
+/* ========================================================================== *
+ * 4c. Call activity log
+ * ========================================================================== */
+
+.call-activity-log__list {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Row classes below are exactly those emitted by activity_and_metrics.py. */
+.call-activity-log__row {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: baseline;
+  gap: var(--sp-1) var(--sp-3);
+  padding: var(--sp-3) 0;
+  border-bottom: 1px solid var(--c-border);
+  font-size: var(--fs-sm);
+}
+
+.call-activity-log__row:last-child {
+  border-bottom: none;
+}
+
+/* Interaction pill; the renderer sets data-interaction on the row. */
+.call-activity-log__type {
+  padding: var(--sp-1) var(--sp-2);
+  border-radius: 999px;
+  background: var(--c-surface-3);
+  color: var(--c-text-muted);
+  font-size: var(--fs-xs);
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.call-activity-log__row[data-interaction="booked"] .call-activity-log__type {
+  background: var(--c-positive-soft);
+  color: var(--c-positive);
+}
+
+.call-activity-log__row[data-interaction="rescheduled"] .call-activity-log__type {
+  background: var(--c-info-soft);
+  color: var(--c-info);
+}
+
+.call-activity-log__row[data-interaction="cancelled"] .call-activity-log__type {
+  background: var(--c-surface-3);
+  color: var(--c-text-muted);
+}
+
+/* An escalation is the one row a human must act on, so it is marked strongest. */
+.call-activity-log__row[data-interaction="escalated"] .call-activity-log__type {
+  background: var(--c-negative-soft);
+  color: var(--c-negative);
+}
+
+.call-activity-log__row[data-interaction="escalated"] {
+  margin-inline: calc(-1 * var(--sp-3));
+  padding-inline: var(--sp-3);
+  border-left: 3px solid var(--c-negative);
+  background: color-mix(in srgb, var(--c-negative-soft) 45%, transparent);
+  border-radius: var(--radius-sm);
+}
+
+.call-activity-log__patient {
+  grid-column: 2;
+  font-weight: 550;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.call-activity-log__time {
+  grid-row: 1;
+  grid-column: 2;
+  justify-self: end;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--c-text-subtle);
+  white-space: nowrap;
+}
+
+/* ========================================================================== *
+ * 4d. Impact metrics strip
+ * ========================================================================== */
+
+.impact-metrics-strip__controls {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-4);
+}
+
+.impact-metrics-strip__period {
+  font-size: var(--fs-sm);
+  font-weight: 550;
+}
+
+.impact-metrics-strip__period-label {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--c-text-subtle);
+}
+
+.impact-metrics-strip__cards {
+  display: grid;
+  gap: var(--sp-4);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
+}
+
+.impact-metrics-strip__card {
+  position: relative;
+  padding: var(--sp-4) var(--sp-5);
+  background: linear-gradient(
+    180deg,
+    var(--c-surface-2),
+    color-mix(in srgb, var(--c-surface-2) 40%, var(--c-surface))
+  );
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius);
+}
+
+.impact-metrics-strip__label {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--c-text-subtle);
+  margin-bottom: var(--sp-2);
+  text-wrap: balance;
+}
+
+.impact-metrics-strip__value {
+  margin: 0;
+  font-size: var(--fs-metric);
+  font-weight: 680;
+  line-height: 1.1;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+}
+
+.impact-metrics-strip__trend {
+  margin: var(--sp-2) 0 0;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  padding: var(--sp-1) var(--sp-2);
+  border-radius: 999px;
+  font-size: var(--fs-xs);
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+ * Trend polarity is inverted on purpose: this metric is the no-show *rate*, so a
+ * rise is bad and a fall is good.
+ */
+.impact-metrics-strip__trend--up {
+  background: var(--c-negative-soft);
+  color: var(--c-negative);
+}
+
+.impact-metrics-strip__trend--up::before {
+  content: "▲";
+}
+
+.impact-metrics-strip__trend--down {
+  background: var(--c-positive-soft);
+  color: var(--c-positive);
+}
+
+.impact-metrics-strip__trend--down::before {
+  content: "▼";
+}
+
+.impact-metrics-strip__trend--flat {
+  background: var(--c-surface-3);
+  color: var(--c-text-muted);
+}
+
+.impact-metrics-strip__trend--flat::before {
+  content: "→";
+}
+
+/* ========================================================================== *
+ * 5. Onboarding wizard
+ * ========================================================================== */
+
+.onboarding-wizard {
+  max-width: 780px;
+  margin: 0 auto;
+  padding: var(--sp-10) var(--sp-6);
+}
+
+.onboarding-wizard h1 {
+  font-size: var(--fs-xl);
+  margin-bottom: var(--sp-3);
+}
+
+.wizard-intro {
+  color: var(--c-text-muted);
+  margin-bottom: var(--sp-8);
+  text-wrap: pretty;
+}
+
+.onboarding-wizard fieldset {
+  margin: 0 0 var(--sp-5);
+  padding: var(--sp-5);
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+.onboarding-wizard legend {
+  padding: 0 var(--sp-2);
+  font-size: var(--fs-xs);
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--c-text-subtle);
+}
+
+.onboarding-wizard label {
+  display: block;
+  margin-bottom: var(--sp-3);
+  font-size: var(--fs-sm);
+  font-weight: 550;
+}
+
+.onboarding-wizard label input,
+.onboarding-wizard label textarea,
+.onboarding-wizard label select {
+  display: block;
+  width: 100%;
+  margin-top: var(--sp-1);
+  font-weight: 400;
+}
+
+.onboarding-wizard input[type="checkbox"] {
+  display: inline-block;
+  width: auto;
+  margin: 0 var(--sp-2) 0 0;
+  accent-color: var(--c-accent);
+}
+
+.hours-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.hours-table th,
+.hours-table td {
+  padding: var(--sp-2);
+  text-align: left;
+  border-bottom: 1px solid var(--c-border);
+  vertical-align: middle;
+}
+
+.hours-table th {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.hours-table label {
+  margin: 0;
+  white-space: nowrap;
+  font-weight: 400;
+}
+
+.service-row,
+.provider-row {
+  display: grid;
+  gap: var(--sp-3);
+  padding: var(--sp-4);
+  margin-bottom: var(--sp-3);
+  background: var(--c-surface-2);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius);
+}
+
+@media (min-width: 640px) {
+  .service-row,
+  .provider-row {
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    align-items: end;
+  }
+}
+
+.onboarding-wizard .wizard-submit {
+  width: 100%;
+  padding: var(--sp-3) var(--sp-5);
+  background: var(--c-accent);
+  border-color: var(--c-accent);
+  color: var(--c-accent-text);
+  font-size: var(--fs-base);
+  font-weight: 650;
+}
+
+.onboarding-wizard .wizard-submit:hover {
+  background: var(--c-accent-hover);
+}
+
+/* Per-field validation errors (Req 1.5). */
+.field-error {
+  margin-top: var(--sp-1);
+  color: var(--c-negative);
+  font-size: var(--fs-sm);
+  font-weight: 550;
+}
+
+/* Shared banner shape for the wizard's top-level messages. */
+.wizard-success,
+.wizard-error,
+.wizard-notice,
+.wizard-review,
+.review-notes,
+.required-summary {
+  padding: var(--sp-3) var(--sp-4);
+  margin-bottom: var(--sp-5);
+  border-radius: var(--radius);
+  border: 1px solid transparent;
+  font-weight: 550;
+}
+
+.wizard-success {
+  background: var(--c-positive-soft);
+  border-color: color-mix(in srgb, var(--c-positive) 30%, transparent);
+  color: var(--c-positive);
+}
+
+.wizard-error,
+.required-summary {
+  background: var(--c-negative-soft);
+  border-color: color-mix(in srgb, var(--c-negative) 30%, transparent);
+  color: var(--c-negative);
+}
+
+.wizard-notice {
+  background: var(--c-info-soft);
+  border-color: color-mix(in srgb, var(--c-info) 30%, transparent);
+  color: var(--c-info);
+}
+
+/* Values read from an uploaded document and not yet saved. Deliberately warmer
+   than .wizard-notice: this is an action the doctor still has to take, not an
+   informational aside, and it must not read as "already done". */
+.wizard-review {
+  background: var(--c-warning-soft);
+  border-color: color-mix(in srgb, var(--c-warning) 40%, transparent);
+  color: var(--c-warning);
+}
+
+/* What extraction found, dropped, or still needs. Quieter than the banner above
+   it — it is detail supporting that banner, not a second alarm. */
+.review-notes {
+  background: var(--c-surface-2);
+  border-color: var(--c-border);
+  color: var(--c-text-muted);
+  font-weight: 450;
+}
+
+/* The missing-required-fields list (Req 1.5 names each missing field). */
+.required-summary ul,
+.review-notes ul {
+  list-style: disc;
+  padding-left: var(--sp-5);
+  margin-top: var(--sp-2);
+}
+
+.wizard-done {
+  padding: var(--sp-8);
+  text-align: center;
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+.wizard-done > * {
+  margin-bottom: 0;
+}
+
+/* ========================================================================== *
+ * 5b. Voice client (/voice)
+ * ========================================================================== */
+
+.voice-client {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: var(--sp-6);
+  display: grid;
+  gap: var(--sp-5);
+}
+
+@media (min-width: 900px) {
+  .voice-client {
+    grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+  }
+
+  .voice-client__stage {
+    grid-column: 1 / -1;
+  }
+}
+
+.voice-client__stage,
+.voice-client__transcript-panel,
+.voice-client__suggestions {
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  padding: var(--sp-5);
+  min-width: 0;
+}
+
+.voice-client__hint {
+  color: var(--c-text-muted);
+  margin-bottom: var(--sp-5);
+  text-wrap: pretty;
+}
+
+.voice-client__controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-3);
+}
+
+.voice-client__call,
+.voice-client__hangup {
+  appearance: none;
+  border: 1px solid var(--c-border-strong);
+  border-radius: 999px;
+  padding: var(--sp-3) var(--sp-6);
+  font-size: var(--fs-base);
+  font-weight: 650;
+  cursor: pointer;
+  background: var(--c-surface);
+  color: var(--c-text);
+  transition: background var(--transition), border-color var(--transition),
+    transform var(--transition);
+}
+
+.voice-client__call {
+  background: var(--c-accent);
+  border-color: var(--c-accent);
+  color: var(--c-accent-text);
+}
+
+.voice-client__call:hover:not(:disabled) {
+  background: var(--c-accent-hover);
+  border-color: var(--c-accent-hover);
+}
+
+.voice-client__hangup:hover:not(:disabled) {
+  background: var(--c-negative-soft);
+  border-color: var(--c-negative);
+  color: var(--c-negative);
+}
+
+.voice-client__call:disabled,
+.voice-client__hangup:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.voice-client__mute {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--fs-sm);
+  color: var(--c-text-muted);
+}
+
+.voice-client__mute input {
+  accent-color: var(--c-accent);
+}
+
+/* Input level. Makes it obvious whether the mic is picking anything up, before
+   blaming the agent for not responding. */
+.voice-client__meter {
+  height: 0.5rem;
+  margin-top: var(--sp-5);
+  background: var(--c-surface-3);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.voice-client__meter-fill {
+  display: block;
+  width: 0%;
+  height: 100%;
+  background: linear-gradient(90deg, var(--c-accent), var(--c-positive));
+  transition: width 80ms linear;
+}
+
+.voice-client__stats {
+  display: grid;
+  gap: var(--sp-4);
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  margin: var(--sp-5) 0 0;
+}
+
+.voice-client__stats dt {
+  font-size: var(--fs-xs);
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--c-text-subtle);
+}
+
+.voice-client__stats dd {
+  margin: var(--sp-1) 0 0;
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.voice-client__transcript-title {
+  font-size: var(--fs-xs);
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--c-text-subtle);
+  margin-bottom: var(--sp-4);
+}
+
+.voice-client__transcript {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  max-height: 26rem;
+  overflow-y: auto;
+}
+
+.voice-client__line {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--sp-1) var(--sp-3);
+  padding: var(--sp-3);
+  border-radius: var(--radius);
+  background: var(--c-surface-2);
+  border-left: 3px solid var(--c-border-strong);
+  font-size: var(--fs-sm);
+}
+
+.voice-client__line--user {
+  border-left-color: var(--c-info);
+}
+
+.voice-client__line--agent {
+  border-left-color: var(--c-accent);
+}
+
+.voice-client__who {
+  font-size: var(--fs-xs);
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--c-text-subtle);
+}
+
+.voice-client__said {
+  grid-column: 2;
+  overflow-wrap: anywhere;
+  text-wrap: pretty;
+}
+
+.voice-client__note-line {
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--radius-sm);
+  font-size: var(--fs-xs);
+  color: var(--c-text-muted);
+  background: var(--c-surface-2);
+}
+
+.voice-client__note-line--error {
+  background: var(--c-negative-soft);
+  color: var(--c-negative);
+  font-weight: 550;
+}
+
+.voice-client__note-line--end {
+  background: var(--c-accent-soft);
+  color: var(--c-accent);
+  font-weight: 550;
+}
+
+.voice-client__empty {
+  padding: var(--sp-6);
+  text-align: center;
+  color: var(--c-text-subtle);
+  border: 1px dashed var(--c-border-strong);
+  border-radius: var(--radius);
+}
+
+.voice-client__try {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  font-size: var(--fs-sm);
+  color: var(--c-text-muted);
+}
+
+.voice-client__try em {
+  color: var(--c-text);
+  font-style: normal;
+  font-weight: 600;
+}
+
+.voice-client__try code {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  padding: 0 var(--sp-1);
+  background: var(--c-surface-3);
+  border-radius: 4px;
+}
+
+.voice-client__note {
+  margin-top: var(--sp-4);
+  padding-top: var(--sp-4);
+  border-top: 1px solid var(--c-border);
+  font-size: var(--fs-xs);
+  color: var(--c-text-subtle);
+}
+
+/* ========================================================================== *
+ * 6. States
+ * ========================================================================== */
+
+.decisions-feed__empty,
+.schedule-view__empty,
+.call-activity-log__empty {
+  padding: var(--sp-8) var(--sp-4);
+  text-align: center;
+  color: var(--c-text-subtle);
+  background: var(--c-surface-2);
+  border: 1px dashed var(--c-border-strong);
+  border-radius: var(--radius);
+  text-wrap: pretty;
+}
+
+/* A load failure is recoverable, not empty — the renderer sets has-error. */
+[data-has-error="true"] .decisions-feed__empty,
+[data-has-error="true"] .schedule-view__empty {
+  background: var(--c-warning-soft);
+  border-color: color-mix(in srgb, var(--c-warning) 40%, transparent);
+  border-style: solid;
+  color: var(--c-warning);
+  font-weight: 550;
+}
+
+.dashboard-shell__denied {
+  max-width: 34rem;
+  margin: var(--sp-10) auto;
+  padding: var(--sp-8);
+  text-align: center;
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
+}
+
+.dashboard-shell__denied-title {
+  font-size: var(--fs-lg);
+  margin-bottom: var(--sp-3);
+}
+
+.dashboard-shell__denied-message {
+  color: var(--c-text-muted);
+  text-wrap: pretty;
+}
+
+/* ========================================================================== *
+ * 7. Accessibility + responsive
+ * ========================================================================== */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@media (prefers-contrast: more) {
+  :root {
+    --c-border: var(--c-text-muted);
+    --c-border-strong: var(--c-text);
+    --c-text-muted: var(--c-text);
+    --c-text-subtle: var(--c-text);
+  }
+}
+
+@media (max-width: 560px) {
+  .app-bar {
+    padding: var(--sp-3) var(--sp-4);
+    flex-wrap: wrap;
+  }
+
+  .dashboard-shell {
+    padding: var(--sp-4) var(--sp-4) var(--sp-8);
+  }
+
+  .dashboard-shell__view {
+    padding: var(--sp-4);
+  }
+
+  .impact-metrics-strip__value {
+    font-size: var(--fs-lg);
+  }
+
+  .schedule-view__header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+
+@media print {
+  .app-bar,
+  .decision-card__controls,
+  .schedule-view__controls,
+  .impact-metrics-strip__controls {
+    display: none !important;
+  }
+
+  .dashboard-shell__view {
+    box-shadow: none;
+    break-inside: avoid;
+  }
+}
+
+/* ==========================================================================
+   Clinic documents page (/documents)
+   ========================================================================== */
+
+.documents-page {
+  max-width: 60rem;
+  margin: 0 auto;
+  padding: var(--sp-8) var(--sp-5);
+}
+
+.documents-title {
+  font-size: var(--fs-xl, 1.5rem);
+  margin-bottom: var(--sp-3);
+}
+
+.documents-subtitle {
+  font-size: var(--fs-lg, 1.125rem);
+  margin: var(--sp-8) 0 var(--sp-4);
+  padding-bottom: var(--sp-2);
+  border-bottom: 1px solid var(--c-border);
+}
+
+.documents-intro {
+  color: var(--c-text-muted);
+  margin-bottom: var(--sp-6);
+  text-wrap: pretty;
+}
+
+.documents-hint {
+  color: var(--c-text-subtle);
+  font-size: var(--fs-sm);
+  margin: var(--sp-2) 0 0;
+}
+
+/* The upload form reads as one distinct action, set apart from the list it
+   adds to. */
+.documents-upload {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  align-items: flex-start;
+  padding: var(--sp-5);
+  background: var(--c-surface-2);
+  border: 1px dashed var(--c-border-strong);
+  border-radius: var(--radius);
+}
+
+.documents-upload label {
+  font-weight: 600;
+}
+
+.documents-upload__submit {
+  margin-top: var(--sp-3);
+}
+
+.documents-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+.documents-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-3);
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--sp-4);
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius);
+}
+
+.documents-row__detail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  min-width: 0;
+}
+
+.documents-row__name {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.documents-row__meta {
+  font-size: var(--fs-sm);
+  color: var(--c-text-muted);
+}
+
+/* A stored document that answers nothing must not look the same as one that
+   works — otherwise the doctor assumes the agent is using a file it cannot. */
+.documents-row__status--inert {
+  color: var(--c-warning);
+  font-weight: 600;
+}
+
+.documents-row__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  align-items: center;
+}
+
+/* The actions are a mix of <a> and form <button>; this makes them one control
+   family rather than three different-looking things. */
+.documents-action {
+  display: inline-block;
+  padding: var(--sp-2) var(--sp-3);
+  font-size: var(--fs-sm);
+  font-weight: 550;
+  font-family: inherit;
+  color: var(--c-text);
+  background: var(--c-surface-2);
+  border: 1px solid var(--c-border-strong);
+  border-radius: var(--radius-sm);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.documents-action:hover {
+  background: var(--c-surface-3);
+}
+
+.documents-action--danger {
+  color: var(--c-negative);
+  border-color: color-mix(in srgb, var(--c-negative) 40%, transparent);
+}
+
+.documents-row__actions form {
+  display: inline;
+  margin: 0;
+}
+
+.documents-empty,
+.documents-disabled {
+  padding: var(--sp-6);
+  text-align: center;
+  color: var(--c-text-subtle);
+  background: var(--c-surface-2);
+  border: 1px dashed var(--c-border-strong);
+  border-radius: var(--radius);
+}
+
+.documents-disabled code {
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+}
+
+.documents-links {
+  margin-top: var(--sp-8);
+  padding-top: var(--sp-4);
+  border-top: 1px solid var(--c-border);
+  font-size: var(--fs-sm);
+}
+
+.app-bar__link {
+  color: var(--c-text-muted);
+  font-size: var(--fs-sm);
+  font-weight: 550;
+  text-decoration: none;
+}
+
+.app-bar__link:hover {
+  color: var(--c-text);
+  text-decoration: underline;
+}
+
+/* The clinic location card in the voice client transcript. A map link cannot be
+   spoken, so it arrives as something tappable. */
+.voice-client__card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  padding: var(--sp-4);
+  margin: var(--sp-3) 0;
+  background: var(--c-info-soft);
+  border: 1px solid color-mix(in srgb, var(--c-info) 30%, transparent);
+  border-radius: var(--radius);
+  list-style: none;
+}
+
+.voice-client__card-title {
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--c-info);
+}
+
+.voice-client__card-address {
+  font-weight: 550;
+  text-wrap: pretty;
+}
+
+.voice-client__card-link {
+  align-self: flex-start;
+  margin-top: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--c-surface);
+  background: var(--c-info);
+  border-radius: var(--radius-sm);
+  text-decoration: none;
+}
+
+.voice-client__card-link:hover {
+  filter: brightness(1.1);
+}
+
+.voice-client__card-coords {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--c-text-muted);
+}
+
+/* ==========================================================================
+   Doctor's day calendar (/slots)
+   ========================================================================== */
+
+/* Shared header for the standalone pages (calendar, patient record). Both were
+   reachable only by a text link at the very bottom, with nothing saying where you
+   were — they read as orphans rather than parts of one product. */
+.clinic-header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  flex-wrap: wrap;
+  margin: calc(var(--sp-8) * -1) calc(var(--sp-5) * -1) var(--sp-6);
+  padding: var(--sp-4) var(--sp-5);
+  /* Frosted rather than solid, so the wash reads through it and the header feels
+     like a layer above the page instead of a band glued to the top. */
+  background: var(--glass);
+  backdrop-filter: saturate(1.6) blur(12px);
+  border-bottom: 1px solid var(--hairline);
+}
+
+@supports not (backdrop-filter: blur(2px)) {
+  .clinic-header {
+    background: var(--c-surface);
+  }
+}
+
+.clinic-header__brand {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-weight: 700;
+}
+
+.clinic-header__mark {
+  display: grid;
+  place-items: center;
+  width: 2.1rem;
+  height: 2.1rem;
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--c-accent-text);
+  background: var(--grad-accent);
+  border-radius: 9px;
+  box-shadow: 0 2px 8px -2px color-mix(in srgb, var(--c-accent) 55%, transparent);
+}
+
+.clinic-header__name {
+  letter-spacing: -0.012em;
+}
+
+.clinic-header__link--active {
+  color: var(--c-accent-text);
+  background: var(--grad-accent);
+  box-shadow: 0 2px 8px -3px color-mix(in srgb, var(--c-accent) 60%, transparent);
+}
+
+.clinic-header__role {
+  background: var(--c-accent-soft);
+  border-color: color-mix(in srgb, var(--c-accent) 32%, transparent);
+  color: color-mix(in srgb, var(--c-accent) 78%, var(--c-text));
+}
+
+.clinic-header__nav {
+  display: flex;
+  gap: var(--sp-1);
+  margin-inline-start: auto;
+}
+
+.clinic-header__link {
+  padding: var(--sp-2) var(--sp-3);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--c-text-muted);
+  text-decoration: none;
+  border-radius: var(--radius-sm);
+}
+
+.clinic-header__link:hover {
+  color: var(--c-text);
+  background: var(--c-surface-2);
+}
+
+.clinic-header__link--active {
+  color: var(--c-text);
+  background: var(--c-surface-3);
+}
+
+.clinic-header__role {
+  padding: 2px var(--sp-2);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--c-text-muted);
+  border: 1px solid var(--c-border-strong);
+  border-radius: 999px;
+}
+
+.day-schedule {
+  max-width: 68rem;
+  margin: 0 auto;
+  padding: var(--sp-8) var(--sp-5);
+}
+
+.day-schedule__title,
+.patient-detail__title {
+  margin: 0 0 var(--sp-5);
+  font-size: clamp(1.6rem, 1.2rem + 1.6vw, 2.35rem);
+  font-weight: 700;
+  /* Tight tracking is most of what separates a heading from body text set large. */
+  letter-spacing: -0.021em;
+  line-height: 1.12;
+  background: linear-gradient(
+    180deg,
+    var(--c-text) 0%,
+    color-mix(in srgb, var(--c-text) 74%, var(--c-accent)) 100%
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* Setup actions fold away. Stacked above the calendar they meant scrolling past
+   two forms to answer "what does my day look like". */
+.day-schedule__tools,
+.patient-detail__editor {
+  margin: var(--sp-4) 0;
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius);
+  background: var(--c-surface-2);
+}
+
+.day-schedule__tools > summary,
+.patient-detail__editor > summary {
+  padding: var(--sp-3) var(--sp-4);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--c-text-muted);
+  cursor: pointer;
+}
+
+.day-schedule__tools > summary:hover,
+.patient-detail__editor > summary:hover {
+  color: var(--c-text);
+}
+
+.day-schedule__tools[open] > summary,
+.patient-detail__editor[open] > summary {
+  color: var(--c-text);
+  border-bottom: 1px solid var(--c-border);
+}
+
+/* Part-of-day grouping. 48 half-hour slots as one run is unreadable. */
+.day-schedule__part {
+  margin-top: var(--sp-5);
+}
+
+.day-schedule__part-title {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-3);
+  margin: 0 0 var(--sp-3);
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--c-text-muted);
+}
+
+.day-schedule__part-count {
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--c-text-subtle);
+}
+
+.day-schedule__stat {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 6.5rem;
+  padding: var(--sp-4) var(--sp-5);
+  overflow: hidden;
+  background: var(--grad-surface);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+/* A bar of colour along the top edge, rather than a border on one side. Reads as
+   a label on the card instead of a stray rule. */
+.day-schedule__stat::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  height: 3px;
+  background: var(--c-border-strong);
+}
+
+.day-schedule__stat strong {
+  /* Tabular figures so the numbers do not jitter as counts change. */
+  font-variant-numeric: tabular-nums;
+  font-size: var(--fs-metric);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1;
+}
+
+.day-schedule__stat span {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--c-text-subtle);
+}
+
+.day-schedule__stat--open::before {
+  background: linear-gradient(
+    90deg,
+    var(--c-positive),
+    color-mix(in srgb, var(--c-positive) 55%, var(--c-accent))
+  );
+}
+
+.day-schedule__stat--open strong {
+  color: var(--c-positive);
+}
+
+.day-schedule__stat--booked::before {
+  background: var(--grad-accent);
+}
+
+.day-schedule__stat--booked strong {
+  color: var(--c-accent);
+}
+
+.day-schedule__stat--blocked::before {
+  background: var(--c-border-strong);
+}
+
+/* A hairline running out from each heading, so the parts of the day read as bands
+   rather than four unrelated lists. */
+.day-schedule__part-title::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(90deg, var(--hairline), transparent);
+}
+
+.day-schedule__bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-3);
+  align-items: end;
+  justify-content: space-between;
+  padding: var(--sp-4);
+  background: var(--c-surface-2);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius);
+}
+
+.day-schedule__picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-3);
+  align-items: end;
+  margin: 0;
+}
+
+.day-schedule__nav {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--c-text-muted);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.day-schedule__nav:hover {
+  color: var(--c-text);
+}
+
+.day-schedule__publish {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-3);
+  align-items: end;
+  padding: var(--sp-4);
+  margin: var(--sp-5) 0;
+  background: var(--c-surface);
+  border: 1px dashed var(--c-border-strong);
+  border-radius: var(--radius);
+}
+
+.day-schedule__hint {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: var(--fs-xs);
+  color: var(--c-text-subtle);
+}
+
+/* The day at a glance. Was one line of "48 open · 0 booked · 0 blocked", which
+   reads as a footnote rather than the first thing worth knowing. */
+.day-schedule__summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-3);
+  margin: var(--sp-5) 0 var(--sp-3);
+  padding: 0;
+  list-style: none;
+}
+
+/* A dense grid, so a whole 48-slot day is visible without scrolling. */
+.day-schedule__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(7.5rem, 1fr));
+  gap: var(--sp-2);
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.day-schedule__cell {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--sp-3);
+  background: var(--grad-surface);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  transition: transform var(--transition), box-shadow var(--transition),
+    border-color var(--transition);
+}
+
+/* Status as a stripe down the leading edge. Colour-washing the whole tile made
+   forty-eight of them shout at once; a stripe says the same thing quietly and
+   leaves the times legible. */
+.day-schedule__cell::before {
+  content: "";
+  position: absolute;
+  inset: var(--sp-2) auto var(--sp-2) 0;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--c-positive);
+}
+
+.day-schedule__cell:hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--c-accent) 34%, transparent);
+  box-shadow: var(--shadow);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .day-schedule__cell {
+    transition: none;
+  }
+
+  .day-schedule__cell:hover {
+    transform: none;
+  }
+}
+
+/* Booked must not look like open at a glance; that is the whole reason this view
+   shows booked slots at all. */
+/* A booked slot is the one thing on the page with a person attached to it, so it
+   is the one tile allowed to draw the eye. */
+.day-schedule__cell[data-status="booked"] {
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--c-accent) 9%, var(--c-surface)) 0%,
+    var(--c-surface) 100%
+  );
+  border-color: color-mix(in srgb, var(--c-accent) 34%, transparent);
+  box-shadow: 0 1px 2px rgb(16 32 44 / 6%),
+    0 6px 18px -10px color-mix(in srgb, var(--c-accent) 55%, transparent);
+}
+
+.day-schedule__cell[data-status="booked"]::before {
+  background: var(--grad-accent);
+}
+
+.day-schedule__cell[data-status="booked"] .day-schedule__cell-status {
+  color: var(--c-accent);
+}
+
+.day-schedule__cell[data-status="blocked"]::before {
+  background: var(--c-border-strong);
+}
+
+.day-schedule__cell[data-status="blocked"] .day-schedule__cell-time {
+  color: var(--c-text-subtle);
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--c-text-subtle) 55%, transparent);
+}
+
+.day-schedule__cell[data-status="held"] {
+  background: var(--c-warning-soft);
+  border-color: color-mix(in srgb, var(--c-warning) 30%, transparent);
+}
+
+.day-schedule__cell-time {
+  font-variant-numeric: tabular-nums;
+  font-size: var(--fs-md);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  /* The time is the thing you scan for, so it leads rather than sitting at the
+     same weight as the word "Open" underneath it. */
+  color: var(--c-text);
+}
+
+.day-schedule__cell-status {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.day-schedule__cell-service {
+  font-size: var(--fs-xs);
+  color: var(--c-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.day-schedule__empty {
+  padding: var(--sp-6);
+  margin: var(--sp-5) 0;
+  text-align: center;
+  color: var(--c-text-subtle);
+  background: var(--c-surface-2);
+  border: 1px dashed var(--c-border-strong);
+  border-radius: var(--radius);
+}
+
+.day-schedule__links {
+  margin-top: var(--sp-8);
+  padding-top: var(--sp-4);
+  border-top: 1px solid var(--c-border);
+  font-size: var(--fs-sm);
+}
+
+/* Blocked time: the doctor took it off the calendar, so it must not read as
+   available at a glance, and must look different from booked. */
+.day-schedule__cell[data-status="blocked"] {
+  background: repeating-linear-gradient(
+    45deg,
+    var(--c-surface-2),
+    var(--c-surface-2) 6px,
+    var(--c-surface-3) 6px,
+    var(--c-surface-3) 12px
+  );
+  border-color: var(--c-border-strong);
+  color: var(--c-text-subtle);
+}
+
+.day-schedule__cell form {
+  margin: 0;
+}
+
+.day-schedule__cell-action {
+  width: 100%;
+  margin-top: var(--sp-1);
+  padding: 2px var(--sp-2);
+  font-family: inherit;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--c-text-muted);
+  background: transparent;
+  border: 1px solid var(--c-border-strong);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.day-schedule__cell-action:hover {
+  color: var(--c-text);
+  background: var(--c-surface);
+}
+
+.day-schedule__cell-locked {
+  margin-top: var(--sp-1);
+  font-size: var(--fs-xs);
+  font-style: italic;
+  color: var(--c-text-subtle);
+}
+
+.day-schedule__block {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-3);
+  align-items: end;
+  padding: var(--sp-4);
+  margin: var(--sp-5) 0;
+  background: var(--c-surface-2);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius);
+}
+
+.day-schedule__block-title {
+  flex-basis: 100%;
+  font-size: var(--fs-sm);
+  font-weight: 700;
+}
+
+.day-schedule__block-submit--undo {
+  background: transparent;
+  border: 1px solid var(--c-border-strong);
+  color: var(--c-text-muted);
+}
+
+/* Who holds a booked slot, on the calendar cell itself. */
+.day-schedule__cell-action {
+  border-radius: 999px;
+  transition: color var(--transition), background var(--transition),
+    border-color var(--transition);
+}
+
+.day-schedule__cell:hover .day-schedule__cell-action {
+  border-color: color-mix(in srgb, var(--c-accent) 45%, transparent);
+  color: var(--c-accent);
+}
+
+/* The link to a patient's record is the primary action on this page. */
+a.day-schedule__cell-action {
+  display: block;
+  text-align: center;
+  text-decoration: none;
+  color: var(--c-accent-text);
+  background: var(--grad-accent);
+  border-color: transparent;
+}
+
+a.day-schedule__cell-action:hover {
+  color: var(--c-accent-text);
+  filter: brightness(1.08);
+}
+
+.day-schedule__cell-patient {
+  font-size: var(--fs-xs);
+  font-weight: 650;
+  color: var(--c-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ==========================================================================
+   Patient detail (/slots/patient/<id>) — doctor only
+   ========================================================================== */
+
+.patient-detail {
+  max-width: 44rem;
+  margin: 0 auto;
+  padding: var(--sp-8) var(--sp-5);
+}
+
+.patient-detail__title {
+  font-size: var(--fs-xl, 1.5rem);
+  margin-bottom: var(--sp-5);
+}
+
+.patient-detail__subtitle {
+  font-size: var(--fs-lg, 1.125rem);
+  margin: var(--sp-8) 0 var(--sp-3);
+  padding-bottom: var(--sp-2);
+  border-bottom: 1px solid var(--c-border);
+}
+
+.patient-detail__list {
+  display: grid;
+  gap: var(--sp-1);
+  margin: 0;
+  padding: var(--sp-4);
+  background: var(--c-surface-2);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius);
+}
+
+/* Health details are visually set apart from the administrative ones, so it is
+   obvious which part of this page is sensitive. */
+.patient-detail__list--health {
+  background: var(--c-info-soft);
+  border-color: color-mix(in srgb, var(--c-info) 25%, transparent);
+}
+
+.patient-detail__row {
+  display: grid;
+  grid-template-columns: 10rem 1fr;
+  gap: var(--sp-3);
+  padding: var(--sp-1) 0;
+}
+
+.patient-detail__label {
+  font-size: var(--fs-sm);
+  color: var(--c-text-muted);
+}
+
+.patient-detail__value {
+  margin: 0;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.patient-detail__provenance {
+  margin: var(--sp-2) 0 0;
+  font-size: var(--fs-xs);
+  font-style: italic;
+  color: var(--c-text-subtle);
+}
+
+.patient-detail__none {
+  padding: var(--sp-4);
+  color: var(--c-text-subtle);
+  background: var(--c-surface-2);
+  border: 1px dashed var(--c-border-strong);
+  border-radius: var(--radius);
+}
+
+.patient-detail__appointments {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.patient-detail__appointment {
+  padding: var(--sp-3) var(--sp-4);
+  background: var(--c-surface-2);
+  border-left: 3px solid var(--c-info);
+  border-radius: var(--radius-sm);
+}
+
+/* The identity block. Was a bare definition list with nothing to anchor it. */
+.patient-detail__identity {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-5);
+  padding: var(--sp-5);
+  background: var(--grad-surface);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+.patient-detail__identity .patient-detail__list {
+  flex: 1;
+  margin: 0;
+}
+
+.patient-detail__avatar {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 3.5rem;
+  height: 3.5rem;
+  font-size: var(--fs-lg);
+  font-weight: 700;
+  color: var(--c-accent-text);
+  background: var(--grad-accent);
+  border-radius: 50%;
+  box-shadow: 0 4px 14px -4px color-mix(in srgb, var(--c-accent) 60%, transparent);
+}
+
+/* The health panel is the reason this page is doctor-only, so it is visibly a
+   separate, more guarded thing rather than more rows of the same list. */
+.patient-detail__list--health {
+  padding: var(--sp-4) var(--sp-5);
+  background: color-mix(in srgb, var(--c-info-soft) 60%, var(--c-surface));
+  border: 1px solid color-mix(in srgb, var(--c-info) 26%, transparent);
+  border-radius: var(--radius-lg);
+}
+
+.patient-detail__subtitle {
+  letter-spacing: -0.012em;
+}
+
+.patient-detail__appointment {
+  border-left-width: 3px;
+  border-left-color: var(--c-accent);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+}
+
+/* Correcting the record. A phone line mishears names, so this is the only way a
+   wrong one gets fixed — it should look like part of the page, not a hidden
+   admin corner. */
+.patient-detail__form {
+  margin-top: var(--sp-6);
+  padding: var(--sp-4);
+  display: grid;
+  gap: var(--sp-3);
+  background: var(--c-surface-2);
+  border: 1px solid var(--c-border-strong);
+  border-radius: var(--radius);
+}
+
+.patient-detail__field {
+  display: grid;
+  gap: var(--sp-1);
+  font-size: var(--fs-sm);
+}
+
+.patient-detail__field > span {
+  color: var(--c-text-muted);
+  font-weight: 600;
+}
+
+.patient-detail__field input,
+.patient-detail__field select {
+  padding: var(--sp-2) var(--sp-3);
+  font: inherit;
+  color: var(--c-text);
+  background: var(--c-surface);
+  border: 1px solid var(--c-border-strong);
+  border-radius: var(--radius-sm);
+}
+
+.patient-detail__field input:focus-visible,
+.patient-detail__field select:focus-visible {
+  outline: 2px solid var(--c-info);
+  outline-offset: 1px;
+}
+
+.patient-detail__hint {
+  margin: 0;
+  font-size: var(--fs-xs);
+  color: var(--c-text-subtle);
+}
+
+.patient-detail__save {
+  justify-self: start;
+  padding: var(--sp-3) var(--sp-6);
+  font: inherit;
+  font-weight: 600;
+  color: var(--c-accent-text);
+  background: var(--grad-accent);
+  border: 1px solid transparent;
+  border-radius: 999px;
+  box-shadow: 0 4px 14px -6px color-mix(in srgb, var(--c-accent) 65%, transparent);
+  cursor: pointer;
+  transition: filter var(--transition), transform var(--transition);
+}
+
+.patient-detail__save:active {
+  transform: translateY(1px);
+}
+
+.patient-detail__save:hover {
+  filter: brightness(1.08);
+}
+
+.patient-detail__save:focus-visible {
+  outline: 2px solid var(--c-text);
+  outline-offset: 2px;
+}
+
+
+/* ========================================================================== *
+ * 8. Polish layer — applied across every page
+ *
+ * The token system was sound and almost entirely unused: every surface sat at
+ * the same value, the accent hue was defined and then never appeared, and each
+ * page was a stack of bordered rectangles. That reads as a spreadsheet rather
+ * than a product.
+ *
+ * This section is deliberately last so it can raise the shared primitives —
+ * headings, cards, inputs, buttons, panels — without hunting the same change
+ * through five page-specific blocks. Nothing here changes markup; every selector
+ * targets a class the Python renderers already emit.
+ * ========================================================================== */
+
+/* -- Headings ------------------------------------------------------------- *
+ * Tight negative tracking and fluid sizing. This is most of what separates a
+ * heading from body text set large. */
+.dashboard-shell__title,
+.documents-title,
+.onboarding-wizard h1,
+.voice-client h1 {
+  margin: 0 0 var(--sp-4);
+  font-size: clamp(1.6rem, 1.2rem + 1.6vw, 2.35rem);
+  font-weight: 700;
+  letter-spacing: -0.021em;
+  line-height: 1.12;
+  background: linear-gradient(
+    180deg,
+    var(--c-text) 0%,
+    color-mix(in srgb, var(--c-text) 74%, var(--c-accent)) 100%
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* Region titles become quiet labels, so the content inside them leads. */
+.dashboard-shell__view-title,
+.schedule-view__section-title,
+.documents-subtitle {
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--c-text-subtle);
+}
+
+/* -- App bar: match the standalone pages' frosted header ------------------ */
+.app-bar {
+  background: var(--glass);
+  backdrop-filter: saturate(1.6) blur(12px);
+  border-bottom: 1px solid var(--hairline);
+}
+
+.app-bar__mark {
+  color: var(--c-accent-text);
+  background: var(--grad-accent);
+  box-shadow: 0 2px 8px -2px color-mix(in srgb, var(--c-accent) 55%, transparent);
+}
+
+.app-bar__brand {
+  letter-spacing: -0.012em;
+}
+
+.app-bar__role {
+  background: var(--c-accent-soft);
+  border-color: color-mix(in srgb, var(--c-accent) 32%, transparent);
+  color: color-mix(in srgb, var(--c-accent) 78%, var(--c-text));
+}
+
+/* -- Panels: the shared card treatment ------------------------------------ *
+ * Every region, list and panel becomes an object with a soft edge and real
+ * elevation rather than a 1px box. */
+.dashboard-shell__view,
+.decisions-feed,
+.schedule-view,
+.call-activity-log,
+.impact-metrics-strip__card,
+.documents-row,
+.documents-upload,
+.voice-client__stage,
+.voice-client__transcript-panel,
+.voice-client__suggestions,
+.wizard-review,
+.hours-table,
+.provider-row {
+  background: var(--grad-surface);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+/* -- Metric cards --------------------------------------------------------- */
+.impact-metrics-strip__card {
+  position: relative;
+  overflow: hidden;
+  padding: var(--sp-5);
+}
+
+.impact-metrics-strip__card::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  height: 3px;
+  background: var(--grad-accent);
+}
+
+.impact-metrics-strip__value {
+  font-variant-numeric: tabular-nums;
+  font-size: var(--fs-metric);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1;
+}
+
+.impact-metrics-strip__label {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--c-text-subtle);
+}
+
+.impact-metrics-strip__trend {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+/* -- Decision cards ------------------------------------------------------- */
+.decision-card {
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  transition: transform var(--transition), box-shadow var(--transition),
+    border-color var(--transition);
+}
+
+.decision-card:hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--c-accent) 30%, transparent);
+  box-shadow: var(--shadow);
+}
+
+/* -- Rows: activity log, schedule entries, document list ------------------ */
+.call-activity-log__row,
+.schedule-view__appointment,
+.schedule-view__slot {
+  border-radius: var(--radius-sm);
+  transition: background var(--transition);
+}
+
+.call-activity-log__row:hover,
+.schedule-view__appointment:hover,
+.schedule-view__slot:hover {
+  background: color-mix(in srgb, var(--c-accent) 6%, transparent);
+}
+
+.call-activity-log__time,
+.schedule-view__time,
+.voice-client__stats dd {
+  font-variant-numeric: tabular-nums;
+}
+
+/* A booked call is the outcome worth spotting in a long log. */
+.call-activity-log__row[data-interaction="booked"] .call-activity-log__type {
+  color: var(--c-accent);
+  font-weight: 700;
+}
+
+/* -- Buttons -------------------------------------------------------------- *
+ * One primary treatment, used by the wizard, the schedule controls and the
+ * voice client, so a call to action looks the same wherever it appears. */
+.wizard-submit,
+.voice-client__call,
+.documents-action:not(.documents-action--danger) {
+  color: var(--c-accent-text);
+  background: var(--grad-accent);
+  border: 1px solid transparent;
+  border-radius: 999px;
+  box-shadow: 0 4px 14px -6px color-mix(in srgb, var(--c-accent) 65%, transparent);
+  transition: filter var(--transition), transform var(--transition);
+}
+
+.wizard-submit:hover,
+.voice-client__call:hover:not(:disabled),
+.documents-action:not(.documents-action--danger):hover {
+  filter: brightness(1.08);
+}
+
+.wizard-submit:active,
+.voice-client__call:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.schedule-view__nav,
+.schedule-view__today {
+  border-radius: 999px;
+  transition: color var(--transition), background var(--transition),
+    border-color var(--transition);
+}
+
+.schedule-view__nav:hover,
+.schedule-view__today:hover {
+  color: var(--c-accent);
+  border-color: color-mix(in srgb, var(--c-accent) 40%, transparent);
+}
+
+.voice-client__hangup,
+.documents-action--danger {
+  border-radius: 999px;
+}
+
+/* -- Inputs: one look everywhere ----------------------------------------- */
+.onboarding-wizard input,
+.onboarding-wizard select,
+.onboarding-wizard textarea,
+.documents-upload input,
+.day-schedule__picker input,
+.day-schedule__picker select,
+.day-schedule__publish input,
+.day-schedule__publish select,
+.day-schedule__block input {
+  padding: var(--sp-2) var(--sp-3);
+  font: inherit;
+  color: var(--c-text);
+  background: var(--c-surface);
+  border: 1px solid var(--c-border-strong);
+  border-radius: var(--radius-sm);
+  transition: border-color var(--transition), box-shadow var(--transition);
+}
+
+.onboarding-wizard input:focus-visible,
+.onboarding-wizard select:focus-visible,
+.onboarding-wizard textarea:focus-visible,
+.day-schedule__picker input:focus-visible,
+.day-schedule__picker select:focus-visible,
+.day-schedule__publish input:focus-visible,
+.day-schedule__publish select:focus-visible,
+.day-schedule__block input:focus-visible,
+.patient-detail__field input:focus-visible,
+.patient-detail__field select:focus-visible {
+  outline: none;
+  border-color: var(--c-accent);
+  box-shadow: var(--ring);
+}
+
+/* -- Notices ------------------------------------------------------------- */
+.wizard-success,
+.wizard-error,
+.wizard-notice {
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+}
+
+.wizard-success {
+  border-left: 3px solid var(--c-positive);
+}
+
+.wizard-error {
+  border-left: 3px solid var(--c-negative);
+}
+
+/* -- Voice client -------------------------------------------------------- */
+.voice-client__meter {
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.voice-client__meter-fill {
+  background: var(--grad-accent);
+  transition: width 90ms linear;
+}
+
+.voice-client__line {
+  border-radius: var(--radius-sm);
+}
+
+/* The agent and the caller need to be told apart at a glance in a long call. */
+.voice-client__line--user {
+  border-left: 3px solid var(--c-border-strong);
+}
+
+.voice-client__transcript-title {
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--c-text-subtle);
+}
+
+/* -- Documents ----------------------------------------------------------- */
+.documents-row {
+  padding: var(--sp-4) var(--sp-5);
+  transition: transform var(--transition), box-shadow var(--transition),
+    border-color var(--transition);
+}
+
+.documents-row:hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--c-accent) 30%, transparent);
+  box-shadow: var(--shadow);
+}
+
+.documents-list {
+  display: grid;
+  gap: var(--sp-3);
+}
+
+/* -- Onboarding ---------------------------------------------------------- */
+.onboarding-wizard fieldset {
+  padding: var(--sp-5);
+  background: var(--grad-surface);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+.onboarding-wizard legend {
+  padding: 0 var(--sp-2);
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--c-text-subtle);
+}
+
+/* -- Links --------------------------------------------------------------- */
+.day-schedule__links a,
+.documents-links a,
+.patient-detail a:not(.day-schedule__cell-action) {
+  color: var(--c-accent);
+  text-decoration-color: color-mix(in srgb, var(--c-accent) 40%, transparent);
+  text-underline-offset: 2px;
+}
+
+/* -- Respect the setting ------------------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+  .decision-card,
+  .documents-row,
+  .wizard-submit,
+  .voice-client__call,
+  .voice-client__meter-fill {
+    transition: none;
+    animation: none;
+  }
+
+  .decision-card:hover,
+  .documents-row:hover {
+    transform: none;
+  }
+}

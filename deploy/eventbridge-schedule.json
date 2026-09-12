@@ -1,0 +1,30 @@
+{
+  "Comment": [
+    "EventBridge Scheduler schedule driving the Practice_Intelligence analysis",
+    "cadence (Req 13.1: a recurring interval not exceeding 24 hours).",
+    "The in-process AnalysisScheduler clamps its own interval to 24 h, but this",
+    "is the timer that actually fires in deployment: it POSTs the",
+    "run_intelligence action to the runtime's /invocations surface.",
+    "Replace ACCOUNT_ID, REGION, and AGENT_ARN. Apply with:",
+    "  aws scheduler create-schedule --cli-input-json file://eventbridge-schedule.json"
+  ],
+  "Name": "clinic-front-desk-practice-intelligence",
+  "Description": "Runs one Practice_Intelligence analysis pass every 24 hours (Req 13.1).",
+  "GroupName": "default",
+  "State": "ENABLED",
+  "ScheduleExpression": "rate(24 hours)",
+  "ScheduleExpressionTimezone": "UTC",
+  "FlexibleTimeWindow": {
+    "Mode": "FLEXIBLE",
+    "MaximumWindowInMinutes": 15
+  },
+  "Target": {
+    "Arn": "arn:aws:scheduler:::aws-sdk:bedrockagentcore:invokeAgentRuntime",
+    "RoleArn": "arn:aws:iam::ACCOUNT_ID:role/ClinicFrontDeskSchedulerRole",
+    "Input": "{\"AgentRuntimeArn\":\"AGENT_ARN\",\"Qualifier\":\"DEFAULT\",\"RuntimeSessionId\":\"practice-intelligence-scheduled-run\",\"Payload\":\"{\\\"action\\\":\\\"run_intelligence\\\"}\"}",
+    "RetryPolicy": {
+      "MaximumRetryAttempts": 2,
+      "MaximumEventAgeInSeconds": 3600
+    }
+  }
+}

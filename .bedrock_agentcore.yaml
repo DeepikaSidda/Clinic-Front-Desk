@@ -1,0 +1,66 @@
+# Amazon Bedrock AgentCore starter-toolkit configuration.
+#
+# Checked in so `agentcore launch` is reproducible instead of depending on
+# whatever answers were typed into `agentcore configure` on one machine.
+# Regenerate/refresh it with:
+#
+#   agentcore configure --entrypoint entrypoint.py --name clinic_front_desk
+#
+# The toolkit rewrites this file and fills in the account-specific values it
+# creates (execution role ARN, ECR repository URI, agent id/ARN). Placeholders
+# below marked <...> are filled on the first `agentcore configure`/`launch`.
+#
+# The `protocol: HTTP` setting matters: it is what makes the runtime forward both
+# /invocations and the /ws WebSocket upgrade to the container, which the
+# Voice_Front_Desk needs for bidirectional Nova Sonic audio.
+
+default_agent: clinic_front_desk
+
+agents:
+  clinic_front_desk:
+    name: clinic_front_desk
+    entrypoint: entrypoint.py
+    platform: linux/arm64
+    container_runtime: docker
+
+    aws:
+      region: us-east-1
+      account: "<AWS_ACCOUNT_ID>"
+      # Created by `agentcore configure` unless an existing role ARN is given.
+      # Needs the permissions in deploy/execution-role-policy.json.
+      execution_role: "<AGENTCORE_EXECUTION_ROLE_ARN>"
+      execution_role_auto_create: true
+      ecr_repository: "<ECR_REPOSITORY_URI>"
+      ecr_auto_create: true
+      network_configuration:
+        network_mode: PUBLIC
+      protocol_configuration:
+        # HTTP serves /invocations and upgrades /ws on the same port 8080.
+        server_protocol: HTTP
+      observability:
+        enabled: true
+
+    authorizer_configuration: null # null => SigV4 (IAM) auth in front of the container
+
+    # Environment the container reads (see server.runtime_config_from_env).
+    environment:
+      CLINIC_BACKEND: dynamodb
+      CLINIC_TABLE_NAME: clinic-front-desk
+      # Nova Sonic v2. The v2 id really is "amazon.nova-2-sonic-v1:0"; the v1
+      # model is "amazon.nova-sonic-v1:0". Only v2 supports the turn_detection
+      # (barge-in endpointing) config the voice adapter sends, so pinning v1 here
+      # would silently drop it.
+      CLINIC_NOVA_SONIC_MODEL_ID: amazon.nova-2-sonic-v1:0
+      CLINIC_ANALYSIS_INTERVAL_HOURS: "24"
+      CLINIC_LOG_LEVEL: INFO
+      # Call audio recording. Left unset on purpose: setting a bucket switches on
+      # recording of patient audio, which carries consent and retention
+      # obligations. See "Call recordings and transcripts" in deploy/README.md.
+      # CLINIC_RECORDINGS_BUCKET: clinic-recordings-<account-id>
+      # CLINIC_RECORDINGS_SSE: aws:kms
+      # CLINIC_RECORDINGS_KMS_KEY_ID: <key-id>
+
+    bedrock_agentcore:
+      agent_id: "<AGENT_ID>"
+      agent_arn: "<AGENT_ARN>"
+      agent_session_id: null

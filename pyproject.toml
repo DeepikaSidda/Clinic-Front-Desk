@@ -1,0 +1,98 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "clinic-front-desk-agent"
+version = "0.1.0"
+description = "Clinic Front-Desk Voice Agent: a two-agent (reactive voice + autonomous intelligence) system for a solo-doctor ENT clinic."
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [{ name = "Agents for Humans Hackathon" }]
+keywords = ["voice-agent", "strands", "nova-sonic", "bedrock", "dynamodb", "clinic"]
+
+# Runtime dependencies. The agent/tool orchestration core (Strands), the AWS
+# clients for Amazon Bedrock (Nova Sonic) + DynamoDB persistence.
+dependencies = [
+    "strands-agents>=0.1.0",
+    "boto3>=1.34.0",
+    # TypeIs (PEP 742) for bidirectional Ok/Err narrowing on the Result union;
+    # imported from typing directly on Python 3.13+.
+    "typing-extensions>=4.10; python_version < '3.13'",
+]
+
+[project.optional-dependencies]
+# Real-time voice: the Amazon Bedrock bidirectional-streaming runtime that the
+# Strands BidiNovaSonicModel drives for genuine Nova Sonic speech-to-speech.
+# Installed separately (extra) so the core agent/data-layer/dashboard remain
+# importable and testable without AWS/CRT native builds.
+voice = [
+    "aws-sdk-bedrock-runtime>=0.0.2",
+    "awscrt>=0.20",
+]
+# The AgentCore Runtime container surface: an ASGI app serving /ping,
+# /invocations, and the /ws voice WebSocket on port 8080. Kept an extra so the
+# core agent, Data_Layer, and dashboard logic install without a web framework.
+deploy = [
+    "starlette>=0.37",
+    "uvicorn[standard]>=0.30",
+    # Starlette parses multipart form bodies only when this is present, and it
+    # raises at request time rather than import time when it is missing — so the
+    # document upload route would 500 on first use instead of failing to start.
+    "python-multipart>=0.0.9",
+]
+# Document-backed clinic knowledge: reading the PDFs the doctor uploads in the
+# portal. An extra rather than a core dependency because the agent answers fully
+# from the onboarding configuration without it — and because a plain-text upload
+# needs no reader at all, so a deployment that skips PDFs skips this too. Absence
+# is handled: the extractor raises a message naming the missing reader rather than
+# an ImportError.
+documents = [
+    "pypdf>=4.2",
+]
+# Test tooling: pytest as the runner, Hypothesis for property-based tests,
+# moto to stand up a local/mocked DynamoDB for the storage-contract tests.
+test = [
+    "pytest>=8.0",
+    "hypothesis>=6.100",
+    "moto[dynamodb]>=5.0",
+    # Starlette's TestClient (used by the AgentCore server contract tests) needs
+    # httpx; the server itself is exercised through the deploy extra.
+    "httpx>=0.27",
+    "clinic-front-desk-agent[deploy]",
+]
+# Everything a contributor needs locally.
+dev = [
+    "clinic-front-desk-agent[test]",
+    "mypy>=1.10",
+    "ruff>=0.5",
+]
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+clinic_front_desk = ["py.typed"]
+
+[tool.mypy]
+python_version = "3.12"
+packages = ["clinic_front_desk"]
+mypy_path = "src"
+strict = true
+warn_unused_configs = true
+# boto3 ships no py.typed marker (types live in the separate, optional
+# boto3-stubs distribution). Rather than a blanket ignore, the two boto3 imports
+# carry a local `# type: ignore[import-untyped]`; the Data_Layer otherwise only
+# touches the DynamoDB resource through its own narrow Protocols.
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]

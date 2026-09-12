@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Call the Clinic — Voice_Front_Desk</title>
+    <link rel="stylesheet" href="/static/dashboard.css" />
+  </head>
+  <body>
+    <header class="app-bar">
+      <span class="app-bar__brand">
+        <span class="app-bar__mark" aria-hidden="true">CF</span>
+        Call the clinic
+      </span>
+      <span class="app-bar__spacer"></span>
+      <span class="app-bar__meta">
+        <a class="app-bar__clinic-status" href="/?role=doctor">Open dashboard →</a>
+        <span
+          class="app-bar__status"
+          data-role="call-status"
+          data-state="idle"
+          role="status"
+          >Not connected</span
+        >
+      </span>
+    </header>
+
+    <main class="voice-client">
+      <section class="voice-client__stage">
+        <p class="voice-client__hint" data-role="hint">
+          Press <strong>Start call</strong> and allow microphone access, then speak
+          as you would to a receptionist. Nova Sonic handles the speech both ways —
+          you will hear the reply.
+        </p>
+
+        <div class="voice-client__controls">
+          <button type="button" class="voice-client__call" data-role="start">
+            Start call
+          </button>
+          <button
+            type="button"
+            class="voice-client__hangup"
+            data-role="stop"
+            disabled
+          >
+            Hang up
+          </button>
+          <label class="voice-client__mute">
+            <input type="checkbox" data-role="mute" />
+            Mute mic
+          </label>
+        </div>
+
+        <!-- Input level, so it is obvious whether the mic is actually picking up
+             audio before blaming the agent for not responding. -->
+        <div
+          class="voice-client__meter"
+          data-role="meter-wrap"
+          role="img"
+          aria-label="Microphone input level"
+        >
+          <span class="voice-client__meter-fill" data-role="meter"></span>
+        </div>
+
+        <dl class="voice-client__stats">
+          <div>
+            <dt>Session</dt>
+            <dd data-role="session-id">—</dd>
+          </div>
+          <div>
+            <dt>Outcome</dt>
+            <dd data-role="outcome">—</dd>
+          </div>
+          <div>
+            <dt>Audio sent</dt>
+            <dd data-role="sent">0 s</dd>
+          </div>
+          <div>
+            <dt>Audio received</dt>
+            <dd data-role="received">0 s</dd>
+          </div>
+        </dl>
+      </section>
+
+      <section class="voice-client__transcript-panel" aria-label="Call transcript">
+        <h2 class="voice-client__transcript-title">Transcript</h2>
+        <ol class="voice-client__transcript" data-role="transcript">
+          <li class="voice-client__empty" data-role="transcript-empty">
+            Nothing said yet.
+          </li>
+        </ol>
+      </section>
+
+      <section class="voice-client__suggestions" aria-label="Things to try">
+        <h2 class="voice-client__transcript-title">Things to try</h2>
+        <ul class="voice-client__try">
+          <li><em>“What are your clinic hours?”</em> — answers from the knowledge base</li>
+          <li><em>“How much is a hearing test?”</em> — pricing for an offered service</li>
+          <li><em>“I'd like to book a hearing test”</em> — offers up to three dated slots</li>
+          <li><em>“Do you treat tinnitus?”</em> — not offered, and it will not guess</li>
+          <li>
+            <em>“My ear hurts, what's wrong with me?”</em> — declines, hands off to a
+            human, and the call ends as <code>escalated</code>
+          </li>
+          <li>
+            <em>“Can I speak to a human?”</em> — escalates immediately
+          </li>
+          <li>
+            Interrupt it mid-sentence — playback should stop straight away
+          </li>
+        </ul>
+        <p class="voice-client__note">
+          Escalations show up in the dashboard's call activity log within 5 seconds.
+        </p>
+      </section>
+    </main>
+
+    <script src="/static/voice_client.js" defer></script>
+  </body>
+</html>

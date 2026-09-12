@@ -1,0 +1,22 @@
+<!--
+  CallActivityLog partial (task 13.3, Req 15.2, 15.4).
+
+  Server-rendered by
+  clinic_front_desk.dashboard.components.activity_and_metrics.render_activity_log.
+  The rows placeholder is replaced with one <li> per activity-log entry
+  (most-recent-first). The data-activity-endpoint attribute tells the
+  vanilla-JS snippet where to re-fetch this partial when a relevant ChangeEvent
+  arrives, so the log reflects booked/rescheduled/cancelled/escalated changes
+  within 5 seconds (Req 15.4).
+-->
+<section
+  class="call-activity-log"
+  data-component="call-activity-log"
+  data-activity-endpoint="{activity_endpoint}"
+  aria-label="Call activity log"
+>
+  <h2 class="call-activity-log__title">Call activity</h2>
+  <ol class="call-activity-log__list" data-role="activity-rows">
+    {rows}
+  </ol>
+</section>

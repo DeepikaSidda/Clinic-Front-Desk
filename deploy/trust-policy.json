@@ -1,0 +1,26 @@
+{
+  "Comment": [
+    "Trust policy for the AgentCore Runtime execution role. Replace ACCOUNT_ID",
+    "and REGION. The confused-deputy guards restrict assumption to this account",
+    "and to AgentCore Runtime resources in this region."
+  ],
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "AllowAgentCoreRuntimeToAssume",
+      "Effect": "Allow",
+      "Principal": {
+        "Service": "bedrock-agentcore.amazonaws.com"
+      },
+      "Action": "sts:AssumeRole",
+      "Condition": {
+        "StringEquals": {
+          "aws:SourceAccount": "ACCOUNT_ID"
+        },
+        "ArnLike": {
+          "aws:SourceArn": "arn:aws:bedrock-agentcore:REGION:ACCOUNT_ID:*"
+        }
+      }
+    }
+  ]
+}

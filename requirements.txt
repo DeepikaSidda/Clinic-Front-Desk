@@ -1,0 +1,28 @@
+# Runtime + test dependencies for the Clinic Front-Desk Voice Agent.
+# Prefer `pip install -e ".[test]"` (reads pyproject.toml). This file mirrors
+# those pins for environments/tools that expect a requirements file.
+
+# --- Runtime ---
+strands-agents>=0.1.0
+boto3>=1.34.0
+typing-extensions>=4.10; python_version < '3.13'
+
+# --- Voice (real Nova Sonic speech-to-speech over Bedrock) ---
+# Native builds; installed via the `voice` extra in deployment images.
+# aws-sdk-bedrock-runtime>=0.0.2
+# awscrt>=0.20
+
+# --- AgentCore Runtime container surface (`deploy` extra) ---
+starlette>=0.37
+uvicorn[standard]>=0.30
+
+# --- Test tooling ---
+pytest>=8.0
+hypothesis>=6.100
+moto[dynamodb]>=5.0
+httpx>=0.27
+# Multipart form parsing, for the document upload route. Starlette needs this to
+# read an uploaded file; without it the route fails at request time, not startup.
+python-multipart>=0.0.9
+# Reads the PDFs the doctor uploads in the portal.
+pypdf>=4.2

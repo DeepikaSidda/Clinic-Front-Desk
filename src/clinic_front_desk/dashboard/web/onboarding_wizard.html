@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Clinic Onboarding</title>
+  </head>
+  <body>
+    <main class="onboarding-wizard">
+      <h1>Set up your clinic</h1>
+      <p class="wizard-intro">
+        Add your clinic hours, location, services, accepted insurance, and
+        providers so the front desk can take calls.
+      </p>
+      <!--
+        The form body below is rendered server-side by
+        clinic_front_desk.dashboard.components.onboarding_wizard.render_html,
+        which substitutes the {{WIZARD_BODY}} token. The form works without
+        JavaScript; onboarding_wizard.js only adds/removes rows for convenience.
+      -->
+      <form id="onboarding-wizard" method="post" action="/onboarding" novalidate>
+        {{WIZARD_BODY}}
+      </form>
+    </main>
+    <script src="onboarding_wizard.js" defer></script>
+  </body>
+</html>

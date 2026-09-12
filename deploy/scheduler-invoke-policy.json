@@ -1,0 +1,38 @@
+{
+  "Comment": [
+    "Permissions and trust for the EventBridge Scheduler role that fires the",
+    "recurring Practice_Intelligence run. Two documents in one file: attach",
+    "'TrustPolicy' as the role's assume-role policy and 'Permissions' as an",
+    "inline policy. Replace ACCOUNT_ID, REGION, and AGENT_ARN.",
+    "Scoped to invoking exactly one agent runtime and nothing else."
+  ],
+  "TrustPolicy": {
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "Sid": "AllowSchedulerToAssume",
+        "Effect": "Allow",
+        "Principal": {
+          "Service": "scheduler.amazonaws.com"
+        },
+        "Action": "sts:AssumeRole",
+        "Condition": {
+          "StringEquals": {
+            "aws:SourceAccount": "ACCOUNT_ID"
+          }
+        }
+      }
+    ]
+  },
+  "Permissions": {
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "Sid": "InvokeClinicFrontDeskRuntime",
+        "Effect": "Allow",
+        "Action": "bedrock-agentcore:InvokeAgentRuntime",
+        "Resource": ["AGENT_ARN", "AGENT_ARN/runtime-endpoint/*"]
+      }
+    ]
+  }
+}

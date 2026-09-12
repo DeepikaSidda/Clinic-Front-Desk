@@ -1,0 +1,71 @@
+<!--
+  DecisionsFeed partial (task 13.1, Req 14.1, 14.2, 14.5, 14.7, 14.8).
+
+  Server-rendered by
+  clinic_front_desk.dashboard.components.decisions_feed.render_decisions_feed.
+  Placeholders (filled server-side, all interpolated text HTML-escaped):
+    decisions_endpoint - base URL the JS re-fetches the rebuilt feed from.
+    has_error          - "true" | "false"; true renders empty_message as a
+                         recoverable load error rather than an empty feed.
+    empty_message      - message shown when there are no open Decisions
+                         (or the load-error message when has_error is true).
+    empty_hidden       - " hidden" unless the feed is empty (toggles the message).
+    list_hidden        - " hidden" when the feed is empty (toggles the list).
+    cards              - server-rendered <li> per open Decision, newest-first
+                         (Req 14.1), each with approve/dismiss controls (Req 14.2).
+    feed_json          - the DecisionsFeedView serialized as JSON for the JS to
+                         hydrate from and keep authoritative on live updates.
+
+  The <template> is cloned by decisions_feed.js to add a card on a real-time
+  decision-created ChangeEvent (Req 14.8) and to restore an optimistically
+  removed card when its resolving action fails (Req 14.5, 14.6).
+-->
+<section
+  id="decisions-feed"
+  class="decisions-feed"
+  data-component="decisions-feed"
+  data-decisions-endpoint="{decisions_endpoint}"
+  data-has-error="{has_error}"
+  aria-label="Decisions to make"
+>
+  <h2 class="decisions-feed__title">Decisions to make</h2>
+
+  <!-- Empty / load-error state (Req 14.7). The server toggles [hidden] on this
+       vs. the list; the JS keeps them in sync after each update. -->
+  <p id="decisions-feed-empty" class="decisions-feed__empty" role="status"{empty_hidden}>
+    {empty_message}
+  </p>
+
+  <!-- Open Decisions, newest-first (Req 14.1). Each <li data-decision-id> is
+       the reconciliation unit for optimistic removal / real-time add. -->
+  <ul id="decisions-feed-list" class="decisions-feed__list"{list_hidden}>
+    {cards}
+  </ul>
+
+  <!-- Card template cloned by decisions_feed.js for each Decision. -->
+  <template id="decisions-feed-card-template">
+    <li class="decision-card" data-decision-id="">
+      <p class="decision-card__kind" data-field="kind_label"></p>
+      <p class="decision-card__summary" data-field="summary"></p>
+      <p class="decision-card__action" data-field="recommended_action"></p>
+      <p class="decision-card__support">
+        Supported by <span data-field="supporting_record_count"></span> records
+      </p>
+      <p class="decision-card__error" data-field="error" role="alert" hidden></p>
+      <div class="decision-card__controls">
+        <!-- Approve / dismiss controls (Req 14.2). -->
+        <button type="button" class="decision-card__approve" data-action="approve">
+          Approve
+        </button>
+        <button type="button" class="decision-card__dismiss" data-action="dismiss">
+          Dismiss
+        </button>
+      </div>
+    </li>
+  </template>
+
+  <!-- Initial view-model as JSON for the JS to hydrate from (Req 14.1). -->
+  <script id="decisions-feed-data" type="application/json">
+{feed_json}
+  </script>
+</section>

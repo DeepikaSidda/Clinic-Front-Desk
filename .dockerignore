@@ -1,0 +1,36 @@
+# Keep the build context small and free of local state / caches / secrets.
+.git/
+.gitignore
+.venv/
+.vscode/
+.kiro/
+.hypothesis/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+**/__pycache__/
+**/*.py[cod]
+*.egg-info/
+build/
+dist/
+tests/
+scripts/
+deploy/
+Dockerfile
+.dockerignore
+requirements.txt
+pytest.ini
+# Local voice-test artifacts. `talk_to_agent.py --save-audio` writes the agent's
+# spoken reply to the repo root for listening. Gitignored, but nothing stopped
+# them being copied into the image — 4 MB of recorded speech in a deployed
+# container, and patient audio at that if a real call had been saved.
+*.wav
+*.pcm
+# The clinic PDF is an input the doctor uploads through the portal, not something
+# the running container reads.
+clinic-info.pdf
+# Never ship local credentials or environment files.
+.env
+.env.*
+*.pem
+.aws/

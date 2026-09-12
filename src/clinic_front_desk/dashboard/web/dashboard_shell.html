@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Clinic Dashboard</title>
+  </head>
+  <body>
+    <main class="dashboard-shell" data-component="dashboard-shell">
+      <h1 class="dashboard-shell__title">Clinic Dashboard</h1>
+      <!--
+        Role-gated shell body (task 13.5, Req 15.5, 15.7).
+
+        Rendered server-side by
+        clinic_front_desk.dashboard.shell.render_dashboard_shell, which replaces
+        the {{SHELL_BODY}} token below. The RoleGate decides which views a
+        viewer may see:
+
+          - Assigned role (Req 15.5): one <section.dashboard-shell__view> region
+            per permitted view (schedule / call-activity / impact-metrics /
+            decisions), in canonical order. Each region is an empty mount point
+            that the individual view components (other tasks) fill; the shell
+            only decides whether a region exists.
+          - No assigned role (Req 15.7): a single
+            <section.dashboard-shell__denied> access-denied state and NO view
+            regions, so there is nothing for schedule/activity/metrics data to
+            mount into.
+      -->
+      {{SHELL_BODY}}
+    </main>
+  </body>
+</html>

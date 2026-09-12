@@ -1,0 +1,76 @@
+<!--
+  ScheduleView partial (task 13.2, Req 15.1, 15.4, 15.6).
+
+  Server-rendered by
+  clinic_front_desk.dashboard.schedule_view.render_schedule_view.
+  Placeholders (filled server-side):
+    schedule_endpoint - base URL the JS re-fetches this partial from, scoped by
+                        provider + day (real-time refresh & day change).
+    provider_id       - the Provider whose calendar this shows.
+    day               - the ISO date currently displayed (YYYY-MM-DD).
+    has_error         - "true" | "false"; true renders empty_message as a
+                        recoverable load error rather than an empty day.
+    empty_message     - message shown when the day has no appointments/slots
+                        (or the load-error message when has_error is true).
+    empty_hidden      - " hidden" unless the day is empty (toggles the message).
+    lists_hidden      - " hidden" when the day is empty (toggles the lists).
+    appointment_rows  - server-rendered <li> per booked appointment (Req 15.1).
+    slot_rows         - server-rendered <li> per open slot (Req 15.1).
+
+  The JS (schedule_view.js) defaults the day picker to today (Req 15.1),
+  re-fetches this partial for a selected non-current day within 2 s (Req 15.6),
+  and re-fetches on an appointment/slot ChangeEvent within 5 s (Req 15.4).
+-->
+<section
+  class="schedule-view"
+  data-component="schedule-view"
+  data-schedule-endpoint="{schedule_endpoint}"
+  data-provider-id="{provider_id}"
+  data-day="{day}"
+  data-has-error="{has_error}"
+  aria-label="Provider schedule"
+>
+  <header class="schedule-view__header">
+    <h2 class="schedule-view__title">Schedule</h2>
+    <div class="schedule-view__controls">
+      <button type="button" class="schedule-view__nav" data-role="schedule-prev-day">
+        Previous day
+      </button>
+      <label class="schedule-view__day-label" for="schedule-view-day">Day</label>
+      <input
+        id="schedule-view-day"
+        type="date"
+        class="schedule-view__day"
+        data-role="schedule-day-picker"
+        value="{day}"
+      />
+      <button type="button" class="schedule-view__today" data-role="schedule-today">
+        Today
+      </button>
+      <button type="button" class="schedule-view__nav" data-role="schedule-next-day">
+        Next day
+      </button>
+    </div>
+  </header>
+
+  <!-- Empty / load-error state (Req 15.1). The server toggles [hidden] on this
+       vs. the lists; the JS keeps them in sync after each refetch. -->
+  <p class="schedule-view__empty" data-role="schedule-empty" role="status"{empty_hidden}>
+    {empty_message}
+  </p>
+
+  <div class="schedule-view__lists"{lists_hidden}>
+    <section class="schedule-view__section" aria-label="Appointments">
+      <h3 class="schedule-view__section-title">Appointments</h3>
+      <ul class="schedule-view__appointment-list" data-role="appointment-list">
+      {appointment_rows}
+      </ul>
+    </section>
+    <section class="schedule-view__section" aria-label="Open slots">
+      <h3 class="schedule-view__section-title">Open slots</h3>
+      <ul class="schedule-view__slot-list" data-role="slot-list">
+      {slot_rows}
+      </ul>
+    </section>
+  </div>
+</section>

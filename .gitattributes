@@ -1,0 +1,19 @@
+# Normalise line endings in the repository to LF.
+#
+# Developed on Windows and deployed to Amazon Linux, so without this the same
+# file differs by line ending depending on who last touched it, and every diff
+# fills with whitespace-only changes. Checked in rather than left to each
+# contributor's core.autocrlf setting.
+* text=auto eol=lf
+
+# Shell scripts and cloud-init user-data must be LF regardless of platform: a
+# CRLF shebang line makes the interpreter path unresolvable on Linux.
+*.sh text eol=lf
+
+# Binary, so Git never tries to translate or diff them as text.
+*.pdf binary
+*.wav binary
+*.pcm binary
+*.png binary
+*.jpg binary
+*.ico binary

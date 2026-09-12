@@ -1,0 +1,56 @@
+<!--
+  ImpactMetricsStrip partial (task 13.3, Req 15.3, 15.4).
+
+  Server-rendered by
+  clinic_front_desk.dashboard.components.activity_and_metrics.render_metrics_strip.
+  Placeholders (filled server-side):
+    period_options    - one <option> per supported window (7/30/90 days), the
+                        selected one marked; drives the period selector.
+    hours_saved       - front-desk hours saved over the selected period.
+    waitlist_recovered - appointments recovered from the waitlist.
+    no_show_rate      - no-show rate over the selected period.
+    no_show_trend     - change vs the immediately preceding equal-length period.
+    trend_direction   - "up" | "down" | "flat" (for styling the trend).
+    window_days       - the currently selected window.
+    metrics_endpoint  - where the JS re-fetches this partial (period change /
+                        real-time ChangeEvent), keeping it fresh within 5 s.
+-->
+<section
+  class="impact-metrics-strip"
+  data-component="impact-metrics-strip"
+  data-metrics-endpoint="{metrics_endpoint}"
+  data-window-days="{window_days}"
+  aria-label="Impact metrics"
+>
+  <div class="impact-metrics-strip__controls">
+    <label class="impact-metrics-strip__period-label" for="impact-metrics-period">
+      Reporting period
+    </label>
+    <select
+      id="impact-metrics-period"
+      class="impact-metrics-strip__period"
+      data-role="metrics-period-selector"
+    >
+      {period_options}
+    </select>
+  </div>
+  <dl class="impact-metrics-strip__cards">
+    <div class="impact-metrics-strip__card" data-metric="hours-saved">
+      <dt class="impact-metrics-strip__label">Front-desk hours saved</dt>
+      <dd class="impact-metrics-strip__value" data-role="hours-saved">{hours_saved}</dd>
+    </div>
+    <div class="impact-metrics-strip__card" data-metric="waitlist-recovered">
+      <dt class="impact-metrics-strip__label">Appointments recovered from waitlist</dt>
+      <dd class="impact-metrics-strip__value" data-role="waitlist-recovered">{waitlist_recovered}</dd>
+    </div>
+    <div class="impact-metrics-strip__card" data-metric="no-show-rate">
+      <dt class="impact-metrics-strip__label">No-show rate</dt>
+      <dd class="impact-metrics-strip__value" data-role="no-show-rate">{no_show_rate}</dd>
+      <dd
+        class="impact-metrics-strip__trend impact-metrics-strip__trend--{trend_direction}"
+        data-role="no-show-trend"
+        data-trend-direction="{trend_direction}"
+      >{no_show_trend}</dd>
+    </div>
+  </dl>
+</section>
