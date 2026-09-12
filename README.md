@@ -749,36 +749,7 @@ Also in place:
 
 ---
 
-## Known limitations
 
-Listed because a reviewer finding these is worse than reading them here.
-
-- **Human handover is recorded, not delivered.** See the **Human handover and Amazon
-  Connect** section above. The agent says someone will follow up; what happens is a
-  dashboard row.
-- **`book_appointment` does not verify the slot is still open.** Booking an already-booked
-  slot creates a second appointment on it, and the calendar shows only one name per slot, so
-  the collision is invisible. Slot ids are guessable. This is a real bug, not a scope
-  decision.
-- **Tool calls are not logged.** The transcript captures speech only, so a call cannot be
-  audited afterwards for which tools ran and what they returned.
-- **The doctor's dashboard is slow from outside the region** — around 55 seconds for the full
-  page. `assemble_snapshot` issues roughly ninety **sequential** DynamoDB queries, one per day
-  of the metrics window plus one per service. In region that is a second or two; from a
-  laptop it is dominated by round-trip latency. The reads are independent and could be issued
-  concurrently. Confirmed as a round-trip problem, not a data-volume one: publishing 2,000
-  extra slots did not move the number.
-- **DynamoDB point-in-time recovery and deletion protection are off**, and there are no
-  backups.
-- **No authentication anywhere.** The voice endpoint is deliberately open so judges can call
-  it. The dashboard is protected by not being deployed — sufficient for a demo, not for a
-  clinic.
-- **Sunday is closed** in the demo configuration, so no slots exist on Sundays. The agent
-  explains this; it is configuration, not a code limitation.
-
-
-
----
 
 ## Acknowledgements
 
