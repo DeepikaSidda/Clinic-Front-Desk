@@ -43,6 +43,7 @@ registration is assertable in a unit test too.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -58,6 +59,13 @@ from clinic_front_desk.data_layer.interfaces import (
     EscalationStore,
     PatientStore,
     WaitlistStore,
+)
+from clinic_front_desk.handover import (
+    HandoverDelivered,
+    HandoverFailed,
+    HandoverOutcome,
+    HandoverRequest,
+    HandoverTransport,
 )
 from clinic_front_desk.models import (
     Appointment,
@@ -201,6 +209,13 @@ class VoiceFrontDeskStores:
 #: recover the existing record to hand back to the caller.
 _ESCALATION_LOOKBACK = 200
 
+#: How far back to look for the current call session when gathering transcript
+#: context for a handover. Small: the active call is almost always the most recent,
+#: and this read is a nicety attached to a rare event, not a hot path.
+_SESSION_LOOKBACK = 20
+
+logger = logging.getLogger(__name__)
+
 
 class BoundToolset:
     """The Strands tool suite bound to a set of Data_Layer stores.
@@ -213,8 +228,32 @@ class BoundToolset:
     delegate to, so store binding lives in exactly one place.
     """
 
-    def __init__(self, stores: VoiceFrontDeskStores) -> None:
+    def __init__(
+        self,
+        stores: VoiceFrontDeskStores,
+        *,
+        handover_transport: HandoverTransport | None = None,
+        on_escalation: Callable[[str, str], None] | None = None,
+    ) -> None:
         self.stores = stores
+
+        # Called with (call_session_id, reason) the first time a call escalates.
+        #
+        # Separate from the handover transport on purpose. A transport *delivers* a
+        # handover and reports whether it succeeded. This is a notification hook for
+        # things that want to know a call is waiting — the live-call console uses it
+        # to flag which call needs a person. Routing that through the transport
+        # interface would mean reporting "delivered" because a row turned red, which
+        # is exactly the over-promise the transport exists to prevent.
+        self.on_escalation = on_escalation
+
+        # Carries a recorded escalation to an actual person. Optional, and absent
+        # by default: with no transport the escalation is still recorded and shown
+        # on the dashboard, which is what the system did before any transport
+        # existed. What must never happen is the agent promising a callback that
+        # nothing dispatched, so the delivery outcome is reported rather than
+        # assumed. See clinic_front_desk.handover.
+        self.handover_transport = handover_transport
         # (call_session_id, reason) pairs already escalated through this toolset.
         #
         # Two independent paths call flag_for_human: the deterministic guardrail
@@ -617,7 +656,68 @@ class BoundToolset:
         )
         if is_ok(result):
             self._escalated.add(key)
+            if self.on_escalation is not None:
+                # Never let a listener's failure cost the escalation, which is
+                # already safely written by this point.
+                try:
+                    self.on_escalation(call_session_id, str(reason))
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("on_escalation listener failed: %s", exc)
         return result
+
+    def deliver_handover(
+        self, escalation: Any, *, summary: str
+    ) -> HandoverOutcome | None:
+        """Carry a recorded escalation to a person. ``None`` when no transport is set.
+
+        Called only after the escalation is persisted, so a transport that is down
+        cannot lose the fact that the caller asked for help. A transport is
+        contractually forbidden from raising, but one is caught here anyway: a
+        badly behaved implementation must degrade the promise made to the caller,
+        never end their call.
+        """
+        transport = self.handover_transport
+        if transport is None:
+            return None
+
+        patient_ref = getattr(escalation, "patient_ref", None)
+        request = HandoverRequest(
+            escalation=escalation,
+            summary=summary,
+            patient_name=getattr(patient_ref, "name", None),
+            callback_phone=getattr(patient_ref, "callback_phone", None),
+            transcript_tail=self._transcript_tail(),
+        )
+        try:
+            return transport.deliver(request)
+        except Exception as exc:  # noqa: BLE001 - see docstring
+            logger.warning("handover transport %s raised: %s", transport.name, exc)
+            return HandoverFailed(detail=f"{type(exc).__name__}: {exc}")
+
+    def _transcript_tail(self, turns: int = 6) -> str:
+        """The last few turns, so whoever picks up starts informed.
+
+        Read through ``list_recent`` because that is the only read the
+        ``CallSessionStore`` contract offers — there is no get-by-id. Best-effort
+        throughout: a transcript that cannot be read must not stop a handover, since
+        the reason and the callback number are the parts that actually matter.
+        """
+        try:
+            session_id = self.session_id
+            if not session_id:
+                return ""
+            recent = self.stores.call_sessions.list_recent(_SESSION_LOOKBACK)
+            if is_err(recent):
+                return ""
+            session = next(
+                (s for s in recent.value if getattr(s, "id", None) == session_id), None
+            )
+            if session is None:
+                return ""
+            transcript = getattr(session, "transcript", None) or []
+            return "\n".join(str(entry) for entry in list(transcript)[-turns:])
+        except Exception:  # noqa: BLE001 - context is a nicety, not a requirement
+            return ""
 
     def _find_existing_escalation(
         self, call_session_id: str, reason: EscalationReason
@@ -941,16 +1041,50 @@ def build_patient_facing_tools(
                 patient_request.
             context: Free-text description of the escalated request.
             patient_id: The patient id when known.
+
+        The result carries ``handover_delivered`` and ``say_to_caller``. Say ONLY
+        what is in ``say_to_caller``. When ``handover_delivered`` is false nothing
+        was dispatched to a person — the request is recorded for the clinic, but you
+        must NOT tell the caller that somebody will ring them back. Offer to take a
+        message or suggest calling during clinic hours instead. Promising a callback
+        that was never dispatched is worse than admitting the handover did not go
+        through.
         """
         patient_ref = PatientRef(patient_id=patient_id) if patient_id else None
-        return _payload(
-            toolset.flag_for_human(
-                reason=EscalationReason(reason),
-                call_session_id=toolset.session_id,
-                context=context,
-                patient_ref=patient_ref,
-            )
+        result = toolset.flag_for_human(
+            reason=EscalationReason(reason),
+            call_session_id=toolset.session_id,
+            context=context,
+            patient_ref=patient_ref,
         )
+        payload = _payload(result)
+        if not is_ok(result):
+            return payload
+
+        # Recorded first, delivered second. A transport that is down degrades what
+        # the agent may promise; it never loses the fact that the caller asked.
+        outcome = toolset.deliver_handover(result.value, summary=context)
+        if outcome is None:
+            # No transport configured: the escalation is on the doctor's dashboard
+            # and nothing was dispatched, so do not imply anyone was reached.
+            payload["handover_delivered"] = False
+            payload["handover_transport"] = None
+            payload["say_to_caller"] = (
+                "I've recorded this for the clinic so the team can follow it up."
+            )
+            return payload
+
+        payload["handover_transport"] = (
+            toolset.handover_transport.name if toolset.handover_transport else None
+        )
+        if isinstance(outcome, HandoverDelivered):
+            payload["handover_delivered"] = True
+            payload["handover_reference"] = outcome.reference
+        else:
+            payload["handover_delivered"] = False
+            payload["handover_failure"] = outcome.detail
+        payload["say_to_caller"] = outcome.spoken_detail
+        return payload
 
     @tool(name="register_patient")
     def register_patient_tool(

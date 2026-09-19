@@ -40,6 +40,15 @@ PRIVATE = (
     "/dashboard/decisions?role=doctor",
     "/dashboard/calls/abc?role=doctor",
     "/dashboard/events?role=doctor",
+    # The live-takeover console and its routes. These carry patient speech from a
+    # call that is still in progress — the most sensitive thing this system serves —
+    # and they let whoever holds the URL speak to a caller as the clinic.
+    "/live?role=doctor",
+    "/dashboard/live?role=doctor",
+    "/dashboard/live/abc/transcript?role=doctor",
+    "/dashboard/live/abc/takeover?role=doctor",
+    "/dashboard/live/abc/release?role=doctor",
+    "/dashboard/live/abc/say?role=doctor",
     "/invocations",
 )
 

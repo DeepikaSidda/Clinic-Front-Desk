@@ -70,6 +70,7 @@ from clinic_front_desk.dashboard.role_gate import DashboardView, RoleGate
 from clinic_front_desk.dashboard.shell import render_dashboard_shell
 from clinic_front_desk.data_layer.events import ChangeEvent
 from clinic_front_desk.models import CallOutcome, is_err
+from clinic_front_desk.handover.live import LiveCallRegistry, LiveHandoverService
 from clinic_front_desk.voice.clinic_briefing import build_clinic_card
 from clinic_front_desk.voice.recording import CallRecorder
 
@@ -123,6 +124,156 @@ PING_HEALTHY = "Healthy"
 #: ``/ping`` status meaning the container is up but busy with async work. While
 #: this is reported the runtime keeps the session alive.
 PING_HEALTHY_BUSY = "HealthyBusy"
+
+#: The doctor's live-call console, served at ``GET /live``.
+#:
+#: Deliberately one self-contained page with no build step and no framework. It
+#: exists to be opened on a phone while the doctor is between patients, and the
+#: whole point is that it loads instantly and does one thing: show who is on the
+#: line right now and let you talk to them.
+_LIVE_CONSOLE_HTML = """<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Live calls — Clinic Front Desk</title>
+<link rel="stylesheet" href="/static/dashboard.css">
+<style>
+  body { font-family: system-ui, sans-serif; margin: 0; padding: 1.25rem; }
+  h1 { font-size: 1.35rem; margin: 0 0 .25rem; }
+  .muted { color: #6b7280; font-size: .85rem; margin: 0 0 1.25rem; }
+  .call { border: 1px solid #d1d5db; border-radius: .6rem; padding: .9rem;
+          margin-bottom: .9rem; }
+  .call.waiting { border-color: #dc2626; border-width: 2px; }
+  .badge { display: inline-block; font-size: .7rem; font-weight: 700;
+           letter-spacing: .04em; padding: .18rem .5rem; border-radius: .3rem;
+           background: #dc2626; color: #fff; }
+  .badge.live { background: #059669; }
+  .who { font-weight: 600; margin: .45rem 0 .2rem; }
+  .reason { font-size: .85rem; color: #b91c1c; margin: 0 0 .5rem; }
+  .transcript { background: #f9fafb; border-radius: .4rem; padding: .6rem;
+                max-height: 13rem; overflow-y: auto; font-size: .85rem;
+                margin: .5rem 0; }
+  .turn { margin: 0 0 .35rem; }
+  .turn b { text-transform: capitalize; }
+  .row { display: flex; gap: .5rem; margin-top: .5rem; }
+  input[type=text] { flex: 1; padding: .55rem; border: 1px solid #d1d5db;
+                     border-radius: .4rem; font-size: 1rem; }
+  button { padding: .55rem .9rem; border-radius: .4rem; border: 0;
+           background: #111827; color: #fff; font-weight: 600; cursor: pointer; }
+  button.ghost { background: #e5e7eb; color: #111827; }
+  .empty { color: #6b7280; }
+</style>
+</head>
+<body>
+<h1>Live calls</h1>
+<p class="muted">Calls happening right now. Take one over and the agent goes
+quiet — what you type is spoken to the caller.</p>
+<div id="calls"><p class="empty">Waiting for a call…</p></div>
+
+<script>
+(function () {
+  var role = new URLSearchParams(location.search).get("role") || "doctor";
+  var q = function (p) { return p + (p.indexOf("?") < 0 ? "?" : "&") + "role=" + role; };
+  var open = {};
+
+  function post(path, body) {
+    return fetch(q(path), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body || {})
+    });
+  }
+
+  function renderTurns(el, turns) {
+    el.innerHTML = turns.length
+      ? turns.map(function (t) {
+          return '<p class="turn"><b>' + t.role + ':</b> ' +
+                 t.text.replace(/[<>&]/g, "") + "</p>";
+        }).join("")
+      : '<p class="empty">Nothing said yet.</p>';
+    el.scrollTop = el.scrollHeight;
+  }
+
+  function card(call) {
+    var id = call.session_id;
+    var div = document.createElement("div");
+    div.className = "call" + (call.needs_human && !call.taken_over ? " waiting" : "");
+    div.innerHTML =
+      '<span class="badge' + (call.taken_over ? " live" : "") + '">' +
+        (call.taken_over ? "YOU ARE ON THIS CALL" :
+         call.needs_human ? "NEEDS A PERSON" : "IN PROGRESS") +
+      "</span>" +
+      '<p class="who">' + (call.patient_name || "Caller not yet identified") +
+        (call.callback_phone ? " · " + call.callback_phone : "") + "</p>" +
+      (call.reason ? '<p class="reason">' + call.reason + "</p>" : "") +
+      '<div class="transcript" data-t="' + id + '"></div>' +
+      '<div class="row">' +
+        (call.taken_over
+          ? '<input type="text" placeholder="Type what to say to the caller…" data-say="' + id + '">' +
+            '<button data-send="' + id + '">Say</button>' +
+            '<button class="ghost" data-release="' + id + '">Hand back</button>'
+          : '<button data-take="' + id + '">Take over</button>') +
+      "</div>";
+    return div;
+  }
+
+  async function refresh() {
+    var res = await fetch(q("/dashboard/live"));
+    if (!res.ok) return;
+    var calls = (await res.json()).calls || [];
+    var host = document.getElementById("calls");
+
+    if (!calls.length) {
+      host.innerHTML = '<p class="empty">No calls in progress.</p>';
+      return;
+    }
+
+    host.innerHTML = "";
+    for (var i = 0; i < calls.length; i++) host.appendChild(card(calls[i]));
+
+    for (var j = 0; j < calls.length; j++) {
+      (function (call) {
+        var t = document.querySelector('[data-t="' + call.session_id + '"]');
+        fetch(q("/dashboard/live/" + call.session_id + "/transcript"))
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .then(function (d) { if (d && t) renderTurns(t, d.turns || []); });
+      })(calls[j]);
+    }
+  }
+
+  document.addEventListener("click", async function (e) {
+    var take = e.target.getAttribute("data-take");
+    var send = e.target.getAttribute("data-send");
+    var rel = e.target.getAttribute("data-release");
+    if (take) { await post("/dashboard/live/" + take + "/takeover"); refresh(); }
+    if (rel) { await post("/dashboard/live/" + rel + "/release"); refresh(); }
+    if (send) {
+      var box = document.querySelector('[data-say="' + send + '"]');
+      if (box && box.value.trim()) {
+        var text = box.value.trim();
+        box.value = "";
+        await post("/dashboard/live/" + send + "/say", { text: text });
+        refresh();
+      }
+    }
+  });
+
+  document.addEventListener("keydown", function (e) {
+    if (e.key !== "Enter") return;
+    var id = e.target.getAttribute && e.target.getAttribute("data-say");
+    if (!id) return;
+    var btn = document.querySelector('[data-send="' + id + '"]');
+    if (btn) btn.click();
+  });
+
+  refresh();
+  setInterval(refresh, 2000);
+})();
+</script>
+</body>
+</html>
+"""
 
 #: Runtime session id header AgentCore sets on invocations and WS upgrades.
 SESSION_ID_HEADER = "X-Amzn-Bedrock-AgentCore-Runtime-Session-Id"
@@ -223,6 +374,13 @@ class AgentCoreServer:
         self.app = app
         self.role_gate = role_gate or RoleGate()
         self.activity_limit = activity_limit
+
+        # Calls in progress, and the means to speak into one. In-process because a
+        # call cannot outlive the process holding its socket, so a shared store
+        # would buy coordination nobody needs. This is what lets a doctor step
+        # into a live call instead of reading about it afterwards.
+        self.live_calls = LiveCallRegistry()
+        self.live_handover = LiveHandoverService(self.live_calls)
         self._today = today
         self._run_analysis = build_scheduled_intelligence_entrypoint(app)
         self._decision_actions = DecisionActionService(
@@ -505,12 +663,33 @@ class AgentCoreServer:
             recorder = CallRecorder()
             record_audio = self.app.stores.recordings is not None
 
+            live = self.live_calls.register(session.session_id, send)
+
+            # So the doctor's console can show *which* call is waiting rather than
+            # listing every call equally. Set on the live session's toolset, which
+            # is the same instance the model-invoked tool and the guardrail backstop
+            # share, so either route to an escalation flags the call.
+            toolset = getattr(session, "toolset", None)
+            if toolset is not None:
+                toolset.on_escalation = (
+                    lambda _sid, reason: self.live_calls.mark_needs_human(
+                        session.session_id, reason
+                    )
+                )
+
             async def forward_audio(chunk: Any) -> None:
                 if record_audio:
                     recorder.add_agent_audio(
                         base64.b64decode(chunk.audio or ""),
                         sample_rate=chunk.sample_rate,
                     )
+                # A human holds this call: the agent stays silent. Its transcription
+                # keeps running, so the doctor still reads what the caller says —
+                # the caller simply never hears two voices at once. Deliberately not
+                # the barge-in suppression flag, which clears on the next model
+                # response; a handover has to hold until the human is finished.
+                if live.taken_over:
+                    return
                 await send(
                     {
                         "message_type": "agent_audio",
@@ -524,6 +703,9 @@ class AgentCoreServer:
 
             async def forward_turn(turn: Any) -> None:
                 recorder.add_turn(turn.role, turn.text)
+                # Mirrored into the registry so a doctor joining mid-call can read
+                # what they missed rather than asking the caller to start again.
+                self.live_calls.record_turn(session.session_id, turn.role, turn.text)
                 await send(
                     {
                         "message_type": "transcript",
@@ -592,6 +774,10 @@ class AgentCoreServer:
                     return_when=asyncio.FIRST_COMPLETED,
                 )
             finally:
+                # Drop it from the live registry first, so the doctor's console can
+                # never offer to take over a call whose socket has already gone.
+                self.live_calls.unregister(session.session_id)
+
                 # Everything below must run however we got here — a clean end, a
                 # stream error, or this coroutine being cancelled because the
                 # client vanished — because Req 11.5/12.7 require the Call_Session
@@ -1243,6 +1429,98 @@ def create_asgi_app(
             },
         )
 
+    # -- live human takeover ------------------------------------------------
+    #
+    # A caller who needs a person should not be told someone will ring back. These
+    # routes let the doctor step into a call that is still open: the agent goes
+    # quiet, the doctor types, and Amazon Polly speaks it down the audio channel the
+    # caller's browser is already playing.
+    #
+    # Gated on the call-activity view, the same permission that already governs
+    # transcripts — this shows live speech, which is the most sensitive thing the
+    # dashboard serves.
+
+    def _live_guard(request: StarletteRequest) -> str | None:
+        """Return the role when it may see live calls, else ``None``."""
+        role = role_of(request)
+        try:
+            dashboard.require_view(role, DashboardView.CALL_ACTIVITY)
+        except DashboardHttpError:
+            return None
+        return role
+
+    async def live_calls_route(request: StarletteRequest) -> Response:
+        """``GET /dashboard/live`` — calls in progress, the ones needing a human first."""
+        if _live_guard(request) is None:
+            return error_response("Access denied.", 403, "AccessDeniedException")
+        return JSONResponse({"calls": runtime_server.live_calls.list_calls()})
+
+    async def live_transcript_route(request: StarletteRequest) -> Response:
+        """``GET /dashboard/live/{id}/transcript`` — so a doctor joining late catches up."""
+        if _live_guard(request) is None:
+            return error_response("Access denied.", 403, "AccessDeniedException")
+        session_id = request.path_params["session_id"]
+        call = runtime_server.live_calls.get(session_id)
+        if call is None:
+            return error_response("That call is no longer live.", 404, "NotFound")
+        return JSONResponse(
+            {
+                "session_id": session_id,
+                "taken_over": call.taken_over,
+                "turns": runtime_server.live_calls.transcript_of(session_id),
+            }
+        )
+
+    async def live_takeover_route(request: StarletteRequest) -> Response:
+        """``POST /dashboard/live/{id}/takeover`` — silence the agent, join the call."""
+        if _live_guard(request) is None:
+            return error_response("Access denied.", 403, "AccessDeniedException")
+        session_id = request.path_params["session_id"]
+        joined = await runtime_server.live_handover.take_over(session_id)
+        if not joined:
+            return error_response("That call is no longer live.", 404, "NotFound")
+        return JSONResponse({"session_id": session_id, "taken_over": True})
+
+    async def live_release_route(request: StarletteRequest) -> Response:
+        """``POST /dashboard/live/{id}/release`` — hand the call back to the agent."""
+        if _live_guard(request) is None:
+            return error_response("Access denied.", 403, "AccessDeniedException")
+        session_id = request.path_params["session_id"]
+        released = await runtime_server.live_handover.release(session_id)
+        if not released:
+            return error_response("That call is no longer live.", 404, "NotFound")
+        return JSONResponse({"session_id": session_id, "taken_over": False})
+
+    async def live_say_route(request: StarletteRequest) -> Response:
+        """``POST /dashboard/live/{id}/say`` — speak the doctor's words to the caller."""
+        if _live_guard(request) is None:
+            return error_response("Access denied.", 403, "AccessDeniedException")
+        session_id = request.path_params["session_id"]
+        try:
+            body = await request.json()
+        except Exception:  # noqa: BLE001
+            body = {}
+        text = str((body or {}).get("text", "")).strip()
+        if not text:
+            return error_response("Nothing to say.", 400, "ValidationException")
+
+        spoken = await runtime_server.live_handover.say(session_id, text)
+        if not spoken:
+            # The line is recorded on the transcript either way, so the doctor can
+            # see what did not make it through rather than wondering.
+            return JSONResponse(
+                {"session_id": session_id, "spoken": False, "text": text},
+                status_code=502,
+            )
+        return JSONResponse({"session_id": session_id, "spoken": True, "text": text})
+
+    async def live_console_route(request: StarletteRequest) -> Response:
+        """``GET /live`` — the doctor's console for calls happening right now."""
+        role = _live_guard(request)
+        if role is None:
+            return error_response("Access denied.", 403, "AccessDeniedException")
+        return StarletteResponse(_LIVE_CONSOLE_HTML, media_type="text/html")
+
     async def resolve_decision_route(request: StarletteRequest) -> Response:
         """``POST /dashboard/decisions/{id}/{action}`` — approve/dismiss (Req 14.3, 14.4)."""
         role = role_of(request)
@@ -1366,6 +1644,26 @@ def create_asgi_app(
                 document_extract_route,
                 methods=["POST"],
             ),
+            # Live human takeover. Dashboard routes, so absent from the voice-only
+            # build: these carry live patient speech.
+            Route("/live", live_console_route, methods=["GET"]),
+            Route("/dashboard/live", live_calls_route, methods=["GET"]),
+            Route(
+                "/dashboard/live/{session_id}/transcript",
+                live_transcript_route,
+                methods=["GET"],
+            ),
+            Route(
+                "/dashboard/live/{session_id}/takeover",
+                live_takeover_route,
+                methods=["POST"],
+            ),
+            Route(
+                "/dashboard/live/{session_id}/release",
+                live_release_route,
+                methods=["POST"],
+            ),
+            Route("/dashboard/live/{session_id}/say", live_say_route, methods=["POST"]),
             Route("/dashboard/schedule", schedule_partial_route, methods=["GET"]),
             Route("/dashboard/activity", activity_partial_route, methods=["GET"]),
             Route("/dashboard/metrics", metrics_partial_route, methods=["GET"]),

@@ -51,6 +51,33 @@
     },
     {
       "SidComment": [
+        "Human handover into Amazon Connect. Omit this statement entirely unless",
+        "CLINIC_CONNECT_INSTANCE_ID is set — the agent records escalations without",
+        "it and simply does not claim anyone was reached.",
+        "StartTaskContact queues a work item carrying the escalation as contact",
+        "attributes and needs no phone number. StartOutboundVoiceContact places a",
+        "real callback and additionally needs a claimed source number and the",
+        "destination country permitted on the instance.",
+        "Deliberately grants no connect:CreateInstance, no user administration and",
+        "no contact-flow editing: the agent participates in a contact centre, it",
+        "does not configure one.",
+        "Replace CONNECT_INSTANCE_ID, or drop this statement."
+      ],
+      "Sid": "HumanHandoverViaConnect",
+      "Effect": "Allow",
+      "Action": [
+        "connect:StartTaskContact",
+        "connect:StartOutboundVoiceContact",
+        "connect:StopContact"
+      ],
+      "Resource": [
+        "arn:aws:connect:REGION:ACCOUNT_ID:instance/CONNECT_INSTANCE_ID/contact/*",
+        "arn:aws:connect:REGION:ACCOUNT_ID:instance/CONNECT_INSTANCE_ID/contact-flow/*",
+        "arn:aws:connect:REGION:ACCOUNT_ID:instance/CONNECT_INSTANCE_ID/queue/*"
+      ]
+    },
+    {
+      "SidComment": [
         "Two prefixes, both in CLINIC_RECORDINGS_BUCKET / CLINIC_DOCUMENTS_BUCKET.",
         "call-recordings/ is call audio, written only when CLINIC_RECORDINGS_BUCKET",
         "is set. clinic-documents/ holds the clinic briefing the agent reads at the",
