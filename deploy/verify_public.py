@@ -50,6 +50,12 @@ PRIVATE = (
     "/dashboard/metrics",
     "/dashboard/decisions",
     "/dashboard/events",
+    # The live-takeover console and its routes. Worse to expose than the rest of
+    # the dashboard: these carry speech from a call still in progress, and they let
+    # whoever holds the URL talk to a caller as the clinic.
+    "/live",
+    "/dashboard/live",
+    "/dashboard/live/any/transcript",
 )
 
 #: Asking as the doctor, because that is what a judge with the link would do.
