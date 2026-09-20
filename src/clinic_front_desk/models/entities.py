@@ -77,6 +77,42 @@ class DayHours:
 
 
 @dataclass
+class SymptomRoute:
+    """The doctor's own rule for what a described problem should be booked as.
+
+    This is the mechanism that lets a caller say "there's an itch inside my nose"
+    and be booked correctly, **without the model deciding what the itch means**.
+
+    The distinction is the whole design. A model inferring a service from a symptom
+    is making a clinical judgement, unsupervised, on a recorded line, to someone who
+    will act on it. A doctor writing "itching, sneezing, blocked nose -> ENT
+    Consultation" is making that same judgement once, deliberately, in a place she
+    can review and correct. The caller's experience is identical; only the author
+    changes. Anything the doctor has not written a rule for still escalates to a
+    human rather than being guessed at.
+
+    Attributes:
+        phrases: Words a caller might use, in their own language. Matched as whole
+            words against what the caller said, so "ear" does not fire on "hearing".
+        service: The offered service to book. Must be one of the configured
+            services, or the route is ignored — a rule pointing at a service the
+            clinic does not offer would strand the caller.
+        advice: The doctor's own wording, spoken to the caller as-is. Optional; the
+            agent says nothing extra when it is empty.
+        urgent: When true the agent must NOT offer a routine slot. Some things need
+            to be seen today, and quietly booking next Tuesday for sudden hearing
+            loss is the most damaging thing this system could do.
+        urgent_instruction: What to tell the caller instead, in the doctor's words.
+    """
+
+    phrases: list[str] = field(default_factory=list)
+    service: str = ""
+    advice: str = ""
+    urgent: bool = False
+    urgent_instruction: str = ""
+
+
+@dataclass
 class ClinicKnowledgeBase:
     """Onboarded clinic configuration (design ``ClinicKnowledgeBase``, Req 1)."""
 
@@ -86,6 +122,9 @@ class ClinicKnowledgeBase:
     services: list[ServiceConfig] = field(default_factory=list)  # 1–100 (Req 1.2)
     accepted_insurance: list[str] = field(default_factory=list)
     providers: list[Provider] = field(default_factory=list)  # 1–50 (Req 1.3)
+    #: The doctor's symptom-to-service routing. Empty by default, which restores the
+    #: original behaviour exactly: a described symptom matches nothing and escalates.
+    symptom_routes: list[SymptomRoute] = field(default_factory=list)
     configured: bool = False  # False until required fields present (Req 1.7)
     updated_at: ISODateTime = ""
 

@@ -76,6 +76,7 @@ from .entities import (
     ScheduleRule,
     ServiceConfig,
     Slot,
+    SymptomRoute,
     WaitlistEntry,
 )
 from .enums import (
@@ -147,6 +148,7 @@ __all__ = [
     "ScheduleRule",
     "Provider",
     "ServiceConfig",
+    "SymptomRoute",
     "DayHours",
     "ClinicKnowledgeBase",
     "Slot",

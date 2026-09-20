@@ -110,6 +110,7 @@ from clinic_front_desk.tools.patients import (
     record_intake,
 )
 from clinic_front_desk.tools.service_matcher import match_offered_service, offered_service_names
+from clinic_front_desk.tools.symptom_router import RouteMatch, route_described_problem
 from clinic_front_desk.tools.waitlist import add_to_waitlist
 
 from .barge_in import BargeInHandler
@@ -152,6 +153,8 @@ __all__ = [
 #: ``analyze_patterns`` (Practice_Intelligence) are deliberately excluded.
 PATIENT_FACING_TOOL_NAMES: tuple[str, ...] = (
     "match_offered_service",
+    # Routes a described problem using the doctor's own rules. Never infers.
+    "suggest_service_for_problem",
     "register_patient",
     "check_availability",
     "list_appointments",
@@ -836,6 +839,68 @@ def build_patient_facing_tools(
         """
         return _payload(toolset.match_service(named_service))
 
+    @tool(name="suggest_service_for_problem")
+    def suggest_service_for_problem_tool(described_problem: str) -> dict[str, Any]:
+        """Find which service to book when the caller describes a problem, not a service.
+
+        Use this when a caller says what is wrong rather than naming a service —
+        "there's an itch inside my nose", "my ear feels blocked". Pass their own
+        words. Do NOT use it when they already named a service; use
+        ``match_offered_service`` for that.
+
+        This does not diagnose and neither may you. It looks the description up in
+        the clinic's own routing, written by the doctor. You are relaying her
+        guidance, not forming an opinion.
+
+        Read the result and do exactly one of three things:
+
+        ``matched`` is true and ``urgent`` is false
+            Say the service in ``service`` is what the doctor sees this under, say
+            ``advice`` if present, then check availability and offer slots as normal.
+
+        ``urgent`` is true
+            Do NOT offer an appointment slot. Say ``urgent_instruction`` to the
+            caller. This is the doctor saying it needs attention sooner than the
+            next free slot, and booking one instead would be actively harmful.
+
+        ``matched`` is false
+            The doctor has written nothing for this. Do NOT guess a service and do
+            NOT suggest what it might be. Say you would rather have someone from the
+            clinic advise them, and use ``flag_for_human``.
+
+        Never add clinical detail of your own to any of these answers.
+
+        Args:
+            described_problem: The caller's own description, as they said it.
+        """
+        kb_result = toolset.stores.knowledge_base.get()
+        kb = None if isinstance(kb_result, Err) else kb_result.value
+        outcome = route_described_problem(kb, described_problem)
+
+        if isinstance(outcome, RouteMatch):
+            payload: dict[str, Any] = {
+                "ok": True,
+                "matched": True,
+                "service": outcome.service,
+                "advice": outcome.advice,
+                "urgent": outcome.urgent,
+                "matched_phrase": outcome.matched_phrase,
+            }
+            if outcome.urgent:
+                payload["urgent_instruction"] = outcome.urgent_instruction
+                payload["do_not_book"] = True
+            return payload
+
+        return {
+            "ok": True,
+            "matched": False,
+            "described": outcome.described,
+            "guidance": (
+                "The clinic has no routing for this. Do not suggest a service or "
+                "say what it might be — hand it to a human with flag_for_human."
+            ),
+        }
+
     @tool(name="check_availability")
     def check_availability_tool(
         service: str,
@@ -1155,6 +1220,7 @@ def build_patient_facing_tools(
 
     definitions: list[Any] = [
         match_offered_service_tool,
+        suggest_service_for_problem_tool,
         register_patient_tool,
         check_availability_tool,
         list_appointments_tool,

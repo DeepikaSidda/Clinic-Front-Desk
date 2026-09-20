@@ -167,6 +167,10 @@ def test_the_patient_facing_tools_are_registered() -> None:
     assert agent.tool_names == PATIENT_FACING_TOOL_NAMES
     assert set(agent.tool_names) == {
         "match_offered_service",
+        # Answers "what should I book for this?" from the doctor's own routing
+        # rules. It cannot infer: an unwritten symptom escalates, exactly as a
+        # described symptom did before this tool existed.
+        "suggest_service_for_problem",
         "register_patient",
         "check_availability",
         # Without this, reschedule and cancel were unreachable: both need an

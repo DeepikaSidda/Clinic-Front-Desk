@@ -36,6 +36,7 @@ from .entities import (
     ScheduleRule,
     ServiceConfig,
     Slot,
+    SymptomRoute,
     WaitlistEntry,
 )
 from .enums import (
@@ -139,6 +140,26 @@ def _patient_ref_from_dict(d: Item | None) -> PatientRef | None:
 # ---------------------------------------------------------------------------
 
 
+def _symptom_route_to_dict(route: SymptomRoute) -> Item:
+    return {
+        "phrases": list(route.phrases),
+        "service": route.service,
+        "advice": route.advice,
+        "urgent": route.urgent,
+        "urgent_instruction": route.urgent_instruction,
+    }
+
+
+def _symptom_route_from_dict(d: Item) -> SymptomRoute:
+    return SymptomRoute(
+        phrases=list(d.get("phrases", [])),
+        service=d.get("service", ""),
+        advice=d.get("advice", ""),
+        urgent=bool(d.get("urgent", False)),
+        urgent_instruction=d.get("urgent_instruction", ""),
+    )
+
+
 def clinic_kb_to_item(kb: ClinicKnowledgeBase) -> Item:
     return {
         "PK": CLINIC_PK,
@@ -149,6 +170,7 @@ def clinic_kb_to_item(kb: ClinicKnowledgeBase) -> Item:
         "services": [_service_to_dict(s) for s in kb.services],
         "accepted_insurance": list(kb.accepted_insurance),
         "providers": [_provider_to_dict(p) for p in kb.providers],
+        "symptom_routes": [_symptom_route_to_dict(r) for r in kb.symptom_routes],
         "configured": kb.configured,
         "updated_at": kb.updated_at,
     }
@@ -161,6 +183,11 @@ def clinic_kb_from_item(item: Item) -> ClinicKnowledgeBase:
         services=[_service_from_dict(s) for s in item.get("services", [])],
         accepted_insurance=list(item.get("accepted_insurance", [])),
         providers=[_provider_from_dict(p) for p in item.get("providers", [])],
+        # Defaulted, so a config written before routing existed loads cleanly and
+        # simply routes nothing — which is the pre-feature behaviour.
+        symptom_routes=[
+            _symptom_route_from_dict(r) for r in item.get("symptom_routes", [])
+        ],
         configured=bool(item.get("configured", False)),
         updated_at=item.get("updated_at", ""),
     )
