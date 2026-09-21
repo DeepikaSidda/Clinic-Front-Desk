@@ -121,6 +121,23 @@ class Turn:
     accepts_escalation_offer: bool = False
     expresses_distress: bool = False
 
+    #: The service the *doctor's own* routing rules give for what this caller
+    #: described, resolved before the policy sees the turn.
+    #:
+    #: Present so the policy can answer a symptom with the doctor's specific guidance
+    #: instead of the same generic consultation for everything. It is still not
+    #: triage by this system: the mapping was authored by a clinician, and the
+    #: service is *offered* rather than selected, so "a service is selected iff the
+    #: patient named one" continues to hold (Req 10.2).
+    routed_service: str | None = None
+    #: The doctor's wording for this route, spoken as-is. Empty when she wrote none.
+    routed_advice: str = ""
+    #: The doctor marked this as needing attention sooner than the next free slot.
+    #: No appointment may be offered.
+    routed_urgent: bool = False
+    #: What to tell the caller instead of offering a slot, in the doctor's words.
+    routed_urgent_instruction: str = ""
+
 
 @dataclass(frozen=True)
 class GuardrailDecision:
@@ -161,6 +178,16 @@ class GuardrailDecision:
     offer_escalation: bool = False
     decline_clinical_content: bool = False
     offer_general_consultation: str | None = None
+
+    #: The doctor's own wording for the route that produced
+    #: :attr:`offer_general_consultation`, to be spoken as-is. Empty when the offer
+    #: is the fallback general consultation rather than an authored route.
+    routed_advice: str = ""
+    #: The doctor marked what this caller described as needing attention sooner than
+    #: the next free slot. No appointment may be offered; say
+    #: :attr:`routed_urgent_instruction` instead.
+    routed_urgent: bool = False
+    routed_urgent_instruction: str = ""
 
     @property
     def should_flag_for_human(self) -> bool:
@@ -321,6 +348,43 @@ class GuardrailPolicy:
         #    Clinical questions and emergencies are caught by branch 1 above and
         #    never reach here.
         if (turn.names_symptom or turn.asks_which_service) and selected_service is None:
+            # 7a. The doctor wrote a rule for this, and marked it as not waiting for
+            #     the next free slot. Offer nothing; say her instruction. Quietly
+            #     booking next Tuesday for something she flagged as urgent is the
+            #     most harmful thing this system could do, so this outranks every
+            #     other answer in this branch.
+            if turn.routed_urgent:
+                return GuardrailDecision(
+                    classification=TurnClassification.UNSURE_WHICH_SERVICE,
+                    is_administrative=False,
+                    requires_escalation=False,
+                    escalation_reason=None,
+                    selected_service=None,
+                    decline_clinical_content=True,
+                    routed_urgent=True,
+                    routed_urgent_instruction=turn.routed_urgent_instruction,
+                )
+
+            # 7b. The doctor wrote a rule for this. Offer *her* service with *her*
+            #     wording, rather than the same general consultation for every
+            #     symptom. Still not triage by this system: a clinician authored the
+            #     mapping, and the service is offered rather than selected — the
+            #     caller must accept it, at which point they have named it.
+            if turn.routed_service is not None:
+                return GuardrailDecision(
+                    classification=TurnClassification.UNSURE_WHICH_SERVICE,
+                    is_administrative=False,
+                    requires_escalation=False,
+                    escalation_reason=None,
+                    selected_service=None,
+                    decline_clinical_content=True,
+                    offer_general_consultation=turn.routed_service,
+                    routed_advice=turn.routed_advice,
+                )
+
+            # 7c. Nothing authored covers this. Unchanged from before routing
+            #     existed: offer the general consultation if there is one, else
+            #     escalate. Never guess.
             if self._general_consultation is not None:
                 return GuardrailDecision(
                     classification=TurnClassification.UNSURE_WHICH_SERVICE,

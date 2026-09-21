@@ -33,6 +33,7 @@ to offer a routine slot and is given her words to say instead.
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 
 from clinic_front_desk.models import ClinicKnowledgeBase, SymptomRoute
@@ -103,6 +104,41 @@ def _phrase_present(haystack: str, phrase: str) -> bool:
     return all(f" {word} " in haystack for word in words)
 
 
+def route_with(
+    routes: Sequence[SymptomRoute],
+    offered_services: Iterable[str],
+    described: str,
+) -> RouteResult:
+    """Match ``described`` against ``routes``, given the services actually offered.
+
+    The routes-and-services form exists because two callers need this from different
+    places. The ``suggest_service_for_problem`` tool has the whole knowledge base to
+    hand. The turn-signal extractor does not — and the guardrail policy deliberately
+    decides over structured signals rather than raw text, so the routing has to be
+    resolved before the policy sees the turn. Both go through this one function so
+    they cannot disagree about what a caller's words mean.
+    """
+    if not described.strip():
+        return RouteUnmatched(described=described)
+
+    haystack = _normalize(described)
+    offered = {normalize_service_name(name) for name in offered_services}
+
+    for route in routes:
+        if not _route_is_usable(route, offered):
+            continue
+        for phrase in route.phrases:
+            if _phrase_present(haystack, phrase):
+                return RouteMatch(
+                    service=route.service,
+                    advice=route.advice,
+                    urgent=route.urgent,
+                    urgent_instruction=route.urgent_instruction,
+                    matched_phrase=phrase,
+                )
+    return RouteUnmatched(described=described)
+
+
 def route_described_problem(
     kb: ClinicKnowledgeBase | None, described: str
 ) -> RouteResult:
@@ -120,25 +156,9 @@ def route_described_problem(
         urgent rule above a routine one covering the same word.
         :class:`RouteUnmatched` when nothing matches.
     """
-    if kb is None or not described.strip():
+    if kb is None:
         return RouteUnmatched(described=described)
-
-    haystack = _normalize(described)
-    offered = {normalize_service_name(name) for name in offered_service_names(kb)}
-
-    for route in kb.symptom_routes:
-        if not _route_is_usable(route, offered):
-            continue
-        for phrase in route.phrases:
-            if _phrase_present(haystack, phrase):
-                return RouteMatch(
-                    service=route.service,
-                    advice=route.advice,
-                    urgent=route.urgent,
-                    urgent_instruction=route.urgent_instruction,
-                    matched_phrase=phrase,
-                )
-    return RouteUnmatched(described=described)
+    return route_with(kb.symptom_routes, offered_service_names(kb), described)
 
 
 def _route_is_usable(route: SymptomRoute, offered: set[str]) -> bool:
@@ -159,4 +179,5 @@ __all__ = [
     "RouteResult",
     "RouteUnmatched",
     "route_described_problem",
+    "route_with",
 ]

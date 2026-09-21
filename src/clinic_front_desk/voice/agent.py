@@ -1391,6 +1391,10 @@ class VoiceSession:
             transcript,
             self.guardrail.offered_services,
             escalation_offered=self._escalation_offered,
+            # Read per turn rather than cached at session start, so a rule the doctor
+            # changes mid-morning applies to the next caller without a restart — the
+            # same live-configuration property the rest of the clinic config has.
+            symptom_routes=self._symptom_routes(),
         )
         decision = self.classify_turn(extracted.turn, context_text=extracted.describe())
         # A distress turn offers escalation rather than escalating (Req 9.3); the
@@ -1475,6 +1479,21 @@ class VoiceSession:
         return action
 
     # -- escalation + finalize ---------------------------------------------
+
+    def _symptom_routes(self) -> list[Any]:
+        """The doctor's symptom routing, or an empty list.
+
+        Best-effort: a configuration read that fails must not stop a call. With no
+        routes the guardrail behaves exactly as it did before routing existed, which
+        is the safe direction to fail in.
+        """
+        try:
+            result = self.toolset.stores.knowledge_base.get()
+            if isinstance(result, Err) or result.value is None:
+                return []
+            return list(result.value.symptom_routes)
+        except Exception:  # noqa: BLE001 - routing is an enhancement, not a requirement
+            return []
 
     def _escalate(self, reason: EscalationReason, context_text: str) -> ToolResult[Any]:
         """Record an escalation for this session via ``flag_for_human`` (Req 9.4)."""

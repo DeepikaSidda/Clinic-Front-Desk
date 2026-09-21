@@ -42,9 +42,12 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable
-from dataclasses import dataclass, field
+from collections.abc import Sequence
+from dataclasses import dataclass, field, replace
 
+from clinic_front_desk.models import SymptomRoute
 from clinic_front_desk.tools.service_matcher import normalize_service_name
+from clinic_front_desk.tools.symptom_router import RouteMatch, route_with
 
 from .guardrails import Turn
 
@@ -436,6 +439,7 @@ def extract_turn(
     offered_services: Iterable[str] = (),
     *,
     escalation_offered: bool = False,
+    symptom_routes: Sequence[SymptomRoute] = (),
 ) -> ExtractedTurn:
     """Extract guardrail signals from a patient transcript.
 
@@ -446,6 +450,12 @@ def extract_turn(
         escalation_offered: Whether the agent has an outstanding offer to hand the
             call to a human. Only then is a bare affirmative read as accepting it
             (Req 9.8).
+        symptom_routes: The doctor's symptom-to-service rules. Resolved here, in the
+            one place that sees the caller's actual words, and passed to the policy
+            as a signal — the policy decides over structured signals and never over
+            raw text, so the routing has to be settled before it runs. Empty routes
+            leave the routed signals unset and the policy behaves as it did before
+            routing existed.
 
     Returns:
         An :class:`ExtractedTurn` carrying the :class:`Turn` and the evidence for
@@ -483,4 +493,20 @@ def extract_turn(
         ),
         expresses_distress=record("expresses_distress", _DISTRESS),
     )
+
+    # The doctor's routing, resolved against the caller's own words. Only consulted
+    # when they have not already named a service — a caller who asked for a hearing
+    # test gets a hearing test, not whatever a rule would have inferred.
+    if symptom_routes and named is None:
+        routed = route_with(symptom_routes, offered_services, transcript)
+        if isinstance(routed, RouteMatch):
+            evidence["routed_service"] = routed.matched_phrase
+            turn = replace(
+                turn,
+                routed_service=routed.service or None,
+                routed_advice=routed.advice,
+                routed_urgent=routed.urgent,
+                routed_urgent_instruction=routed.urgent_instruction,
+            )
+
     return ExtractedTurn(turn=turn, transcript=transcript, evidence=evidence)
