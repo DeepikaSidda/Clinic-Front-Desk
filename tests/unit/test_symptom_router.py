@@ -247,3 +247,75 @@ def test_the_accepted_cost_of_order_independence() -> None:
         _kb([ear_pain]), "my ear is completely fine but I have pain in my knee"
     )
     assert isinstance(outcome, RouteMatch)
+
+
+# -- how callers actually phrase things ------------------------------------
+#
+# All of these come from a live call that failed. The rule was "itching in nose" and
+# the caller said "actually I'm facing the severe itching inside my nose" — missed,
+# because "in" was a required word and she said "inside", and because a rule written
+# "itch" does not contain the word "itching". Function words and word endings were
+# both load bearing, and neither should be.
+
+
+def test_the_live_sentence_that_was_missed() -> None:
+    outcome = route_described_problem(
+        _kb([NOSE]), "actually i'm facing the severe itching inside my nose"
+    )
+    assert isinstance(outcome, RouteMatch)
+    assert outcome.service == ENT
+
+
+@pytest.mark.parametrize(
+    "spoken",
+    [
+        "itching in nose",
+        "severe itching inside my nose",
+        "there is itching in the nose",
+        "my nose is itching",
+        "nose itch",
+    ],
+)
+def test_glue_words_are_not_load_bearing(spoken: str) -> None:
+    """A rule must not hinge on "in", "my" or "the"."""
+    assert isinstance(route_described_problem(_kb([NOSE]), spoken), RouteMatch), spoken
+
+
+@pytest.mark.parametrize(
+    "spoken",
+    [
+        "my nose is blocked",
+        "my nose is blocking since morning",
+        "nose blocks every night",
+    ],
+)
+def test_word_endings_are_not_load_bearing(spoken: str) -> None:
+    """blocked / blocking / blocks are the same complaint."""
+    assert isinstance(route_described_problem(_kb([NOSE]), spoken), RouteMatch), spoken
+
+
+# -- and the guarantees that stemming must not break -----------------------
+
+
+def test_stemming_does_not_collapse_ear_into_hearing() -> None:
+    """Prefix matching would have. Suffix stripping leaves ear and hear distinct."""
+    ear = SymptomRoute(phrases=["ear"], service=ENT)
+    assert isinstance(route_described_problem(_kb([ear]), "I want a hearing test"), RouteUnmatched)
+
+
+def test_stemming_does_not_collapse_nose_into_nosebleed() -> None:
+    """Two different complaints must not merge just because one starts with the other."""
+    nose = SymptomRoute(phrases=["nose"], service=ENT)
+    assert isinstance(route_described_problem(_kb([nose]), "nosebleed"), RouteUnmatched)
+
+
+def test_a_phrase_of_only_glue_words_matches_nothing() -> None:
+    """Otherwise it would route every caller who said "in the"."""
+    glue = SymptomRoute(phrases=["in the"], service=ENT)
+    assert isinstance(route_described_problem(_kb([glue]), "anything at all"), RouteUnmatched)
+
+
+def test_the_must_not_match_cases_still_do_not() -> None:
+    routes = [NOSE, SymptomRoute(phrases=["cannot hear properly"], service=HEARING)]
+    for spoken in ("I want a hearing test", "sharp pain in my jaw", "my knee hurts"):
+        assert isinstance(route_described_problem(_kb(routes), spoken), RouteUnmatched), spoken

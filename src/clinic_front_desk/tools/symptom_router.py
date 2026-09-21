@@ -78,6 +78,54 @@ def _normalize(text: str) -> str:
     return f" {' '.join(lowered.split())} "
 
 
+#: Function words dropped from a rule's phrase before matching.
+#:
+#: A rule written "itching in nose" should not hinge on the word "in". A caller saying
+#: "severe itching inside my nose" was missed for exactly that reason — "inside" is not
+#: "in", so a required word was absent and the rule never fired. The doctor writes
+#: phrases the way she speaks; the glue words carry no meaning and must not be load
+#: bearing. Dropped only from the *phrase*, never from what the caller said.
+_STOPWORDS: frozenset[str] = frozenset(
+    {
+        "a", "an", "and", "are", "as", "at", "be", "for", "from", "has", "have",
+        "i", "in", "is", "it", "its", "me", "my", "of", "on", "or", "so", "some",
+        "that", "the", "there", "this", "to", "was", "with",
+    }
+)
+
+#: Suffixes stripped to compare word forms, longest first.
+#:
+#: The other half of the same miss: a rule written "itch" did not match "itching", and
+#: "blocked nose" did not match "nose is blocking". Callers do not conjugate to match a
+#: rules table.
+#:
+#: Suffix *stripping* rather than prefix matching, deliberately. Prefix matching would
+#: make "nose" match "nosebleed" and collapse two different complaints together;
+#: stemming leaves them distinct because neither reduces to the other. It also keeps
+#: "ear" from matching "hearing", since those stem to "ear" and "hear".
+_SUFFIXES: tuple[str, ...] = ("ing", "ed", "es", "s", "y")
+
+#: Never stem below this, so short words stay themselves.
+_MIN_STEM = 3
+
+
+def _stem(word: str) -> str:
+    """A crude stem: one suffix stripped, if what remains is still a word.
+
+    Deliberately not a real stemmer. A dependency-free rule the doctor can predict
+    beats linguistic accuracy here — she needs to know whether her phrase will fire,
+    and "one common ending is ignored" is something she can hold in her head.
+    """
+    for suffix in _SUFFIXES:
+        if word.endswith(suffix) and len(word) - len(suffix) >= _MIN_STEM:
+            return word[: -len(suffix)]
+    return word
+
+
+def _stems(text: str) -> set[str]:
+    return {_stem(word) for word in text.split()}
+
+
 def _phrase_present(haystack: str, phrase: str) -> bool:
     """True when every word of ``phrase`` appears in ``haystack`` as a whole word.
 
@@ -98,10 +146,17 @@ def _phrase_present(haystack: str, phrase: str) -> bool:
     leaves a caller with no answer. Words still match whole, so "ear" never fires on
     "hearing".
     """
-    words = _normalize(phrase).split()
-    if not words:
+    wanted = [
+        _stem(word)
+        for word in _normalize(phrase).split()
+        if word not in _STOPWORDS
+    ]
+    if not wanted:
+        # A phrase of nothing but glue words would match every sentence. Better to
+        # ignore the rule than to route every caller through it.
         return False
-    return all(f" {word} " in haystack for word in words)
+    present = _stems(haystack)
+    return all(word in present for word in wanted)
 
 
 def route_with(

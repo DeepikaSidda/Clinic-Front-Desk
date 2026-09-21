@@ -237,6 +237,31 @@ def _calendar_lines(
         "there is genuinely nothing to book.",
     ]
 
+    if kb is not None and kb.symptom_routes:
+        urgent_phrases = [
+            phrase
+            for route in kb.symptom_routes
+            if route.urgent
+            for phrase in route.phrases
+        ]
+        # Told up front so the agent does not answer a described symptom from the
+        # generic script before it thinks to look. The routing itself is NOT listed
+        # here on purpose: it must be read through suggest_service_for_problem so the
+        # doctor's exact wording is what reaches the caller, rather than a paraphrase
+        # the model reconstructs from a briefing it read minutes earlier.
+        lines.append(
+            "- The doctor has written her own routing for described symptoms. When a "
+            "caller says what is wrong instead of naming a service, ALWAYS call "
+            "suggest_service_for_problem with their words and relay what it returns. "
+            "Do not answer a described symptom without calling it first."
+        )
+        if urgent_phrases:
+            lines.append(
+                "- Some problems are marked as needing attention sooner than the next "
+                f"free slot (for example: {', '.join(urgent_phrases[:6])}). For those "
+                "the tool returns urgent and you must NOT offer an appointment."
+            )
+
     open_days = _open_weekday_names(kb)
     if open_days:
         lines.append(f"- Days the clinic has hours for: {', '.join(open_days)}.")
