@@ -238,3 +238,110 @@ def test_an_unknown_reason_falls_back_to_itself() -> None:
     registry.mark_needs_human(SESSION, "something_new")
 
     assert registry.list_calls()[0]["reason_label"] == "something_new"
+
+
+# -- nobody picked up ------------------------------------------------------
+#
+# The worst outcome observed on a real call. The agent said it was connecting
+# someone, the call was flagged on the console, nobody was watching, and the caller
+# sat in silence — because the agent had stopped talking believing it had handed
+# over. Saying "nobody is available" is worse than a transfer and far better than
+# nothing.
+
+
+def test_the_caller_is_told_when_nobody_picks_up() -> None:
+    service, registry, recorder = _service()
+    registry.mark_needs_human(SESSION, "patient_request")
+
+    told = _run(service.watch_unattended(SESSION, after_seconds=0, poll_seconds=0.01))
+
+    assert told is True
+    spoken = [m for m in recorder.of_type("transcript") if m["role"] == "agent"]
+    assert spoken, "the caller must be told something"
+    assert "nobody at the clinic has been able to pick up" in spoken[0]["text"].lower()
+
+
+def test_the_message_is_spoken_not_just_written() -> None:
+    """The caller is holding a phone, not watching a screen."""
+    service, registry, recorder = _service()
+    registry.mark_needs_human(SESSION, "patient_request")
+
+    _run(service.watch_unattended(SESSION, after_seconds=0, poll_seconds=0.01))
+
+    assert recorder.of_type("agent_audio"), "they have to be able to hear it"
+
+
+def test_the_caller_is_offered_a_way_forward() -> None:
+    """An apology with no route is just a longer dead end."""
+    service, registry, recorder = _service()
+    registry.mark_needs_human(SESSION, "patient_request")
+
+    _run(service.watch_unattended(SESSION, after_seconds=0, poll_seconds=0.01))
+
+    text = recorder.of_type("transcript")[0]["text"].lower()
+    assert "message" in text
+    assert "opening hours" in text
+
+
+def test_a_caller_who_never_asked_for_a_human_is_left_alone() -> None:
+    """The watcher runs on every call; it must do nothing on an ordinary one."""
+    service, _, recorder = _service()
+
+    async def scenario() -> bool:
+        task = asyncio.create_task(
+            service.watch_unattended(SESSION, after_seconds=0, poll_seconds=0.01)
+        )
+        await asyncio.sleep(0.08)
+        task.cancel()
+        return True
+
+    _run(scenario())
+    assert recorder.of_type("agent_audio") == []
+    assert recorder.of_type("transcript") == []
+
+
+def test_no_apology_once_a_human_has_taken_the_call() -> None:
+    """There is nothing to apologise for when someone actually arrived."""
+    service, registry, recorder = _service()
+    registry.mark_needs_human(SESSION, "patient_request")
+    _run(service.take_over(SESSION))
+
+    told = _run(service.watch_unattended(SESSION, after_seconds=0, poll_seconds=0.01))
+
+    assert told is False
+    assert [m for m in recorder.of_type("transcript") if m["role"] == "agent"] == []
+
+
+def test_the_caller_is_told_only_once() -> None:
+    """Repeating it would be its own kind of unhelpful."""
+    service, registry, recorder = _service()
+    registry.mark_needs_human(SESSION, "patient_request")
+
+    first = _run(service.watch_unattended(SESSION, after_seconds=0, poll_seconds=0.01))
+    second = _run(service.watch_unattended(SESSION, after_seconds=0, poll_seconds=0.01))
+
+    assert first is True
+    assert second is False
+    agent_lines = [m for m in recorder.of_type("transcript") if m["role"] == "agent"]
+    assert len(agent_lines) == 1
+
+
+def test_a_hung_up_call_is_not_spoken_into() -> None:
+    service, registry, recorder = _service()
+    registry.mark_needs_human(SESSION, "patient_request")
+    registry.unregister(SESSION)
+
+    told = _run(service.watch_unattended(SESSION, after_seconds=0, poll_seconds=0.01))
+
+    assert told is False
+    assert recorder.sent == []
+
+
+def test_the_apology_is_attributed_to_the_agent_not_a_human() -> None:
+    """The doctor reading this back must not see it as something a person said."""
+    service, registry, _ = _service()
+    registry.mark_needs_human(SESSION, "patient_request")
+
+    _run(service.watch_unattended(SESSION, after_seconds=0, poll_seconds=0.01))
+
+    assert registry.transcript_of(SESSION)[-1]["role"] == "agent"

@@ -32,6 +32,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import logging
+import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -50,6 +51,22 @@ DEFAULT_ENGINE = "neural"
 
 #: ~32 ms per frame at 16 kHz, matching the cadence the client already expects.
 FRAME_SAMPLES = 512
+
+#: How long a caller waits for a person before the agent comes back to them.
+#:
+#: Short on purpose. This is someone holding a phone in silence, not a support queue
+#: — twenty seconds of nothing is long enough to hang up and conclude the clinic does
+#: not answer its phone.
+UNATTENDED_AFTER_SECONDS = 20.0
+
+#: What the caller hears when nobody picked up. Says what is true, and gives them
+#: somewhere to go: an apology with no route is just a longer dead end.
+UNATTENDED_MESSAGE = (
+    "I'm sorry — nobody at the clinic has been able to pick up just now. "
+    "I've written your request down for them. I can take a message with your name "
+    "and number so they can call you back, or you can ring the clinic during "
+    "opening hours. Which would you prefer?"
+)
 
 #: A send callable bound to one caller's WebSocket.
 Sender = Callable[[dict[str, Any]], Awaitable[None]]
@@ -87,6 +104,12 @@ class LiveCall:
     callback_phone: str = ""
     #: Rolling transcript, so a doctor joining late can read what they missed.
     transcript: list[dict[str, str]] = field(default_factory=list)
+    #: When a human was asked for, as a monotonic timestamp. Used to notice that
+    #: nobody picked up.
+    needs_human_since: float | None = None
+    #: Set once the caller has been told nobody was able to pick up, so they are not
+    #: told repeatedly.
+    unattended_notified: bool = False
 
     def summary(self) -> dict[str, Any]:
         """The shape the doctor's console renders."""
@@ -149,6 +172,8 @@ class LiveCallRegistry:
         if call is not None:
             call.needs_human = True
             call.reason = reason
+            if call.needs_human_since is None:
+                call.needs_human_since = time.monotonic()
 
     def identify(
         self, session_id: str, *, name: str = "", phone: str = ""
@@ -212,6 +237,51 @@ class LiveHandoverService:
         logger.info("live handover: a human took over %s", session_id)
         return True
 
+    async def watch_unattended(
+        self,
+        session_id: str,
+        *,
+        after_seconds: float = UNATTENDED_AFTER_SECONDS,
+        poll_seconds: float = 1.0,
+    ) -> bool:
+        """Come back to a caller nobody picked up, instead of leaving them in silence.
+
+        Observed on a real call: the agent said it was connecting someone, the call
+        was flagged on the console, and nobody was watching. The agent had stopped
+        talking because it believed it had handed over, so the caller sat in dead air
+        with no way forward. Saying nothing is worse than saying nobody is available.
+
+        Returns ``True`` if the caller was told, ``False`` if the call ended, a human
+        arrived, or nobody was ever asked for. Told at most once per call — repeating
+        it would be its own kind of unhelpful.
+        """
+        while True:
+            call = self._registry.get(session_id)
+            if call is None:
+                return False  # the caller hung up
+            if call.taken_over:
+                return False  # a person arrived; nothing to apologise for
+            if call.unattended_notified:
+                # Already told. Return rather than keep looping: a watcher that never
+                # finishes leaves one live task per call for the life of the process.
+                return False
+            if call.needs_human_since is not None:
+                waited = time.monotonic() - call.needs_human_since
+                if waited >= after_seconds:
+                    call.unattended_notified = True
+                    # Spoken, not just written to the transcript. The caller is
+                    # holding a phone, not watching a screen — a line of text they
+                    # cannot hear leaves them in exactly the silence this exists to
+                    # break.
+                    await self.speak(session_id, UNATTENDED_MESSAGE, role="agent")
+                    logger.info(
+                        "live handover: nobody picked up %s after %.0fs",
+                        session_id,
+                        waited,
+                    )
+                    return True
+            await asyncio.sleep(poll_seconds)
+
     async def release(self, session_id: str) -> bool:
         """Hand the call back to the agent."""
         call = self._registry.get(session_id)
@@ -236,23 +306,32 @@ class LiveHandoverService:
         return audio
 
     async def say(self, session_id: str, text: str) -> bool:
-        """Speak ``text`` to the caller as the human on the call.
+        """Speak ``text`` to the caller as the human on the call."""
+        return await self.speak(session_id, text, role="human")
+
+    async def speak(self, session_id: str, text: str, *, role: str = "human") -> bool:
+        """Say ``text`` down the caller's audio channel, attributed to ``role``.
 
         Framed and paced rather than sent as one blob: the client plays frames as
         they arrive, and a single large buffer would arrive late and all at once.
-        The transcript is updated first so the doctor sees their own line
-        immediately, even if synthesis is slow.
+        The transcript is written first so the doctor sees the line immediately, even
+        if synthesis is slow.
+
+        ``role`` exists because two different speakers use this. A doctor who has
+        taken the call is ``human``; the agent apologising that nobody picked up is
+        ``agent``. Labelling the apology as a human would misattribute it in the
+        transcript the doctor later reads back.
         """
         call = self._registry.get(session_id)
         if call is None:
             return False
 
-        self._registry.record_turn(session_id, "human", text)
+        self._registry.record_turn(session_id, role, text)
         await call.send(
             {
                 "message_type": "transcript",
                 "session_id": session_id,
-                "role": "human",
+                "role": role,
                 "text": text,
             }
         )
@@ -285,6 +364,9 @@ __all__ = [
     "DEFAULT_VOICE_ID",
     "FRAME_SAMPLES",
     "POLLY_SAMPLE_RATE",
+    "REASON_LABELS",
+    "UNATTENDED_AFTER_SECONDS",
+    "UNATTENDED_MESSAGE",
     "LiveCall",
     "LiveCallRegistry",
     "LiveHandoverService",

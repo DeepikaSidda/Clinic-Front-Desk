@@ -677,6 +677,16 @@ class AgentCoreServer:
 
             live = self.live_calls.register(session.session_id, send)
 
+            # Comes back to the caller if nobody picks up. Observed on a real call:
+            # the agent said it was connecting someone, the call was flagged on the
+            # console, nobody was watching, and the caller sat in silence — because
+            # the agent had stopped talking believing it had handed over. Started for
+            # every call and cancelled on hang-up; it does nothing at all unless a
+            # human is actually asked for.
+            unattended_watch = asyncio.create_task(
+                self.live_handover.watch_unattended(session.session_id)
+            )
+
             # So the doctor's console can show *which* call is waiting rather than
             # listing every call equally. Set on the live session's toolset, which
             # is the same instance the model-invoked tool and the guardrail backstop
@@ -786,6 +796,11 @@ class AgentCoreServer:
                     return_when=asyncio.FIRST_COMPLETED,
                 )
             finally:
+                # Stop watching for an unattended handover before anything else: the
+                # socket is going away, and speaking into a closed one is noise in
+                # the log at best.
+                unattended_watch.cancel()
+
                 # Drop it from the live registry first, so the doctor's console can
                 # never offer to take over a call whose socket has already gone.
                 self.live_calls.unregister(session.session_id)
