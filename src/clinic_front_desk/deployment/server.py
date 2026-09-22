@@ -151,11 +151,17 @@ _LIVE_CONSOLE_HTML = """<!doctype html>
   .badge.live { background: #059669; }
   .who { font-weight: 600; margin: .45rem 0 .2rem; }
   .reason { font-size: .85rem; color: #b91c1c; margin: 0 0 .5rem; }
-  .transcript { background: #f9fafb; border-radius: .4rem; padding: .6rem;
-                max-height: 13rem; overflow-y: auto; font-size: .85rem;
-                margin: .5rem 0; }
-  .turn { margin: 0 0 .35rem; }
-  .turn b { text-transform: capitalize; }
+  /* Colours set explicitly, not inherited. dashboard.css is a dark theme, so a
+     light panel here inherited light text and the transcript came out unreadable —
+     which matters more on this page than anywhere else, because the doctor is
+     reading it to decide whether to take a live call. */
+  .transcript { background: #0b1220; color: #e5e7eb; border: 1px solid #1f2937;
+                border-radius: .4rem; padding: .7rem;
+                max-height: 13rem; overflow-y: auto; font-size: .88rem;
+                line-height: 1.45; margin: .5rem 0; }
+  .turn { margin: 0 0 .4rem; color: #e5e7eb; }
+  .turn b { text-transform: capitalize; color: #7dd3fc; font-weight: 700; }
+  .turn.patient b { color: #fca5a5; }
   .row { display: flex; gap: .5rem; margin-top: .5rem; }
   input[type=text] { flex: 1; padding: .55rem; border: 1px solid #d1d5db;
                      border-radius: .4rem; font-size: 1rem; }
@@ -188,7 +194,11 @@ quiet — what you type is spoken to the caller.</p>
   function renderTurns(el, turns) {
     el.innerHTML = turns.length
       ? turns.map(function (t) {
-          return '<p class="turn"><b>' + t.role + ':</b> ' +
+          // The caller's own words are what the doctor is scanning for, so they are
+          // marked differently from the agent's and from her own typed lines.
+          var who = t.role === "patient" || t.role === "user" ? "patient" : "";
+          var name = t.role === "human" ? "you" : t.role;
+          return '<p class="turn ' + who + '"><b>' + name + ':</b> ' +
                  t.text.replace(/[<>&]/g, "") + "</p>";
         }).join("")
       : '<p class="empty">Nothing said yet.</p>';
@@ -206,7 +216,9 @@ quiet — what you type is spoken to the caller.</p>
       "</span>" +
       '<p class="who">' + (call.patient_name || "Caller not yet identified") +
         (call.callback_phone ? " · " + call.callback_phone : "") + "</p>" +
-      (call.reason ? '<p class="reason">' + call.reason + "</p>" : "") +
+      (call.reason
+        ? '<p class="reason">' + (call.reason_label || call.reason) + "</p>"
+        : "") +
       '<div class="transcript" data-t="' + id + '"></div>' +
       '<div class="row">' +
         (call.taken_over

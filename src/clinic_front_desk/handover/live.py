@@ -54,6 +54,19 @@ FRAME_SAMPLES = 512
 #: A send callable bound to one caller's WebSocket.
 Sender = Callable[[dict[str, Any]], Awaitable[None]]
 
+#: Escalation reasons, in words. Keyed by
+#: :class:`~clinic_front_desk.models.EscalationReason` values.
+#:
+#: Written from the doctor's point of view rather than the system's: she is deciding
+#: in a second or two whether to pick this call up, and "patient_request" makes her
+#: translate before she can decide.
+REASON_LABELS: dict[str, str] = {
+    "patient_request": "Asked to speak to a person",
+    "patient_distress": "Caller is upset",
+    "clinical_content": "Asked something clinical",
+    "outside_admin_rules": "Outside what the agent can do",
+}
+
 
 @dataclass
 class LiveCall:
@@ -82,6 +95,10 @@ class LiveCall:
             "started_at": self.started_at,
             "needs_human": self.needs_human,
             "reason": self.reason,
+            # The raw reason is an EscalationReason value like "patient_request".
+            # Correct as an API field and wrong on a screen a doctor reads at a
+            # glance while deciding whether to pick the call up.
+            "reason_label": REASON_LABELS.get(self.reason, self.reason),
             "taken_over": self.taken_over,
             "patient_name": self.patient_name,
             "callback_phone": self.callback_phone,

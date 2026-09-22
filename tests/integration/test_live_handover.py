@@ -204,3 +204,37 @@ def test_an_indian_english_neural_voice_is_requested() -> None:
     assert polly.calls[0]["VoiceId"] == "Kajal"
     assert polly.calls[0]["Engine"] == "neural"
     assert polly.calls[0]["SampleRate"] == str(POLLY_SAMPLE_RATE)
+
+
+# -- what the doctor reads at a glance -------------------------------------
+#
+# From a real call: the console showed the escalation reason as "patient_request".
+# Correct as an API value, and wrong on a screen someone reads in a second or two
+# while deciding whether to pick up a call that is already ringing.
+
+
+def test_the_reason_is_shown_in_words() -> None:
+    _, registry, _ = _service()
+    registry.mark_needs_human(SESSION, "patient_request")
+
+    summary = registry.list_calls()[0]
+    assert summary["reason_label"] == "Asked to speak to a person"
+    # The raw value stays, because API consumers should not parse prose.
+    assert summary["reason"] == "patient_request"
+
+
+def test_every_escalation_reason_has_a_label() -> None:
+    """A new reason must not surface as a raw enum on the doctor's screen."""
+    from clinic_front_desk.handover.live import REASON_LABELS
+    from clinic_front_desk.models import EscalationReason
+
+    for reason in EscalationReason:
+        assert str(reason) in REASON_LABELS, reason
+
+
+def test_an_unknown_reason_falls_back_to_itself() -> None:
+    """Better a raw string than a blank space where the reason should be."""
+    _, registry, _ = _service()
+    registry.mark_needs_human(SESSION, "something_new")
+
+    assert registry.list_calls()[0]["reason_label"] == "something_new"
