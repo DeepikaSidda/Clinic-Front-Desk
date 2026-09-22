@@ -737,12 +737,17 @@ def render_html(view: OnboardingWizardViewModel) -> str:
     (Req 1.1).
     """
     if not view.present:
-        banner = (
+        # A confirmation only after an actual save. Landing on this page when the
+        # clinic is already set up used to show "Clinic configuration is complete",
+        # which is a banner telling the doctor something she did not ask about and
+        # cannot act on — so nothing is rendered in that case.
+        body = (
+            '<div class="wizard-done">'
             '<p class="wizard-success" role="status">Clinic configuration saved.</p>'
+            "</div>"
             if view.saved
-            else '<p class="wizard-notice">Clinic configuration is complete.</p>'
+            else ""
         )
-        body = f'<div class="wizard-done">{banner}</div>'
     else:
         body = _render_body(view)
     return _template_shell().replace(_BODY_TOKEN, body)

@@ -30,7 +30,10 @@ PORTALS: tuple[tuple[str, str], ...] = (
     ("Assistant view", "/?role=assistant"),
     ("Day calendar", "/slots?role=doctor"),
     ("Documents", "/documents?role=doctor"),
-    ("Clinic setup", "/onboarding?role=doctor"),
+    # Clinic setup is deliberately not opened. It is a first-run form, and once the
+    # clinic is configured it has nothing to show — opening it every time just puts a
+    # blank page in front of the doctor. Still reachable at /onboarding if the
+    # configuration ever needs rebuilding from scratch.
     ("Voice client", "/voice"),
 )
 
