@@ -76,6 +76,12 @@ def main() -> None:
         action="store_true",
         help="write the demo clinic configuration before serving",
     )
+    # HTTPS, for calling the agent from a phone on the same Wi-Fi. Browsers only
+    # expose a microphone on a secure context; localhost is exempt but a LAN address
+    # is not, so over plain HTTP the page loads on a phone and the call button does
+    # nothing at all. See scripts/make_lan_cert.py.
+    parser.add_argument("--ssl-certfile", default=None)
+    parser.add_argument("--ssl-keyfile", default=None)
     args = parser.parse_args()
 
     import uvicorn
@@ -100,17 +106,54 @@ def main() -> None:
 
     recording = app.stores.recordings is not None
     print(f"  audio recording: {'ON — announced to the caller' if recording else 'off'}")
-    print(f"\n  Dashboard  http://{args.host}:{args.port}/?role=doctor")
-    print(f"  Documents  http://{args.host}:{args.port}/documents?role=doctor")
-    print(f"  Setup form http://{args.host}:{args.port}/onboarding")
-    print(f"  Speak      http://{args.host}:{args.port}/voice")
-    print(f"  Call record  GET /dashboard/calls/<id>?role=doctor\n")
+
+    secure = bool(args.ssl_certfile and args.ssl_keyfile)
+    scheme = "https" if secure else "http"
+    # 0.0.0.0 is what to *bind*, never what to click: show the address another device
+    # can actually reach.
+    shown = args.host
+    if args.host in ("0.0.0.0", "::"):
+        import socket as _socket
+
+        probe = _socket.socket(_socket.AF_INET, _socket.SOCK_DGRAM)
+        try:
+            probe.connect(("8.8.8.8", 80))
+            shown = probe.getsockname()[0]
+        except Exception:  # noqa: BLE001
+            shown = "127.0.0.1"
+        finally:
+            probe.close()
+
+    base = f"{scheme}://{shown}:{args.port}"
+    print(f"\n  Dashboard  {base}/?role=doctor")
+    print(f"  Documents  {base}/documents?role=doctor")
+    print(f"  Setup form {base}/onboarding")
+    print(f"  Speak      {base}/voice")
+    print(f"  Live calls {base}/live?role=doctor")
+    print(f"  Call record  GET /dashboard/calls/<id>?role=doctor")
+
+    if args.host in ("0.0.0.0", "::"):
+        print(
+            "\n  Reachable by every device on this network. The doctor's dashboard "
+            "carries\n  patient names, phone numbers and blood groups, and ?role= is "
+            "not a\n  security control — only do this on a network you trust."
+        )
+        if not secure:
+            print(
+                "\n  No certificate given, so this is plain HTTP. A phone will load "
+                "the page\n  but have no microphone: browsers withhold it outside a "
+                "secure context.\n  Run scripts/make_lan_cert.py and pass "
+                "--ssl-certfile/--ssl-keyfile."
+            )
+    print()
 
     uvicorn.run(
         create_asgi_app(app),
         host=args.host,
         port=args.port,
         log_level=os.environ.get("CLINIC_LOG_LEVEL", "warning").lower(),
+        ssl_certfile=args.ssl_certfile,
+        ssl_keyfile=args.ssl_keyfile,
     )
 
 

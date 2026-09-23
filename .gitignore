@@ -35,3 +35,10 @@ Thumbs.db
 # recorded speech should not end up in version control.
 *.wav
 *.pcm
+
+# Self-signed certificate for calling the agent from a phone on the same Wi-Fi
+# (scripts/make_lan_cert.py). Machine-specific — it certifies this laptop's LAN
+# address — and lan.key is a private key, which has no business in a public repo.
+.certs/
+*.pem
+*.key
