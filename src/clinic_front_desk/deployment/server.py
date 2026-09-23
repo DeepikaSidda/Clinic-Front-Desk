@@ -168,13 +168,20 @@ _LIVE_CONSOLE_HTML = """<!doctype html>
   button { padding: .55rem .9rem; border-radius: .4rem; border: 0;
            background: #111827; color: #fff; font-weight: 600; cursor: pointer; }
   button.ghost { background: #e5e7eb; color: #111827; }
+  button.talk { background: #047857; }
   .empty { color: #6b7280; }
+  /* The microphone being live is the one thing on this page that must be
+     impossible to miss: everything the doctor says is going down a phone line. */
+  .talking { background: #047857; color: #fff; padding: .55rem .8rem;
+             border-radius: .4rem; font-weight: 600; margin: 0 0 1rem; }
 </style>
 </head>
 <body>
 <h1>Live calls</h1>
-<p class="muted">Calls happening right now. Take one over and the agent goes
-quiet — what you type is spoken to the caller.</p>
+<p class="muted">Calls happening right now. Take one over and the agent goes quiet.
+Press <b>Talk</b> to speak to the caller with your own voice, or type a line and
+press Say.</p>
+<p id="talk-status" class="talking" style="display:none"></p>
 <div id="calls"><p class="empty">Waiting for a call…</p></div>
 
 <script>
@@ -192,7 +199,7 @@ quiet — what you type is spoken to the caller.</p>
   }
 
   function renderTurns(el, turns) {
-    el.innerHTML = turns.length
+    var html = turns.length
       ? turns.map(function (t) {
           // The caller's own words are what the doctor is scanning for, so they are
           // marked differently from the agent's and from her own typed lines.
@@ -202,32 +209,216 @@ quiet — what you type is spoken to the caller.</p>
                  t.text.replace(/[<>&]/g, "") + "</p>";
         }).join("")
       : '<p class="empty">Nothing said yet.</p>';
-    el.scrollTop = el.scrollHeight;
+
+    // Rewriting identical markup every two seconds resets the scroll position and
+    // makes the panel impossible to read back through.
+    if (el.innerHTML === html) return;
+
+    // Follow the conversation only if already at the bottom. Otherwise the doctor is
+    // reading something earlier and must not be yanked away from it.
+    var atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+    el.innerHTML = html;
+    if (atBottom) el.scrollTop = el.scrollHeight;
   }
 
-  function card(call) {
+  // Cards are created once and then updated in place, keyed by session id.
+  //
+  // The first version rebuilt the whole list on every poll. That destroyed the text
+  // box two seconds after it appeared — along with whatever had been typed and the
+  // focus — so it was impossible to actually say anything to the caller. Nothing may
+  // replace an element the doctor is typing into.
+  var cards = {};
+
+  function controlsHtml(call) {
+    var id = call.session_id;
+    return call.taken_over
+      ? '<input type="text" placeholder="Type what to say to the caller…" data-say="' + id + '">' +
+        '<button data-send="' + id + '">Say</button>' +
+        '<button class="talk" data-talk="' + id + '">🎤 Talk</button>' +
+        '<button class="ghost" data-release="' + id + '">Hand back</button>'
+      : '<button data-take="' + id + '">Take over</button>' +
+        '<button class="talk" data-talk="' + id + '">🎤 Take over &amp; talk</button>';
+  }
+
+  // --- the doctor's own voice ------------------------------------------------
+  //
+  // Typing was only half a handover: it put the doctor's words on the call but not
+  // her voice. This opens a second socket carrying her microphone to the caller and
+  // the caller's audio back to her, so it is a conversation rather than a relay.
+  var talk = { ws: null, id: null, ctx: null, play: null, node: null, stream: null,
+               playhead: 0 };
+
+  var MIC_RATE = 16000;   // what we send; the caller's client reads the rate per frame
+  var MIC_FRAME = 512;    // ~32 ms, the cadence the caller's player expects
+
+  var WORKLET = [
+    "class DocMic extends AudioWorkletProcessor {",
+    "  constructor(o){super();this.frame=o.processorOptions.frame;",
+    "   this.ratio=sampleRate/o.processorOptions.rate;this.buf=[];this.pos=0;}",
+    "  process(inputs){",
+    "    var ch=inputs[0]&&inputs[0][0];if(!ch)return true;",
+    "    for(var i=0;i<ch.length;i++){",
+    "      this.pos+=1;",
+    "      if(this.pos>=this.ratio){this.pos-=this.ratio;this.buf.push(ch[i]);}",
+    "    }",
+    "    while(this.buf.length>=this.frame){",
+    "      var f=this.buf.splice(0,this.frame);",
+    "      var pcm=new Int16Array(f.length);",
+    "      for(var j=0;j<f.length;j++){",
+    "        var s=Math.max(-1,Math.min(1,f[j]));",
+    "        pcm[j]=s<0?s*0x8000:s*0x7fff;",
+    "      }",
+    "      this.port.postMessage(pcm.buffer,[pcm.buffer]);",
+    "    }",
+    "    return true;",
+    "  }",
+    "}",
+    "registerProcessor('doc-mic', DocMic);"
+  ].join("\\n");
+
+  function b64(bytes) {
+    var s = "";
+    for (var i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+    return btoa(s);
+  }
+
+  function fromB64(text) {
+    var raw = atob(text);
+    var out = new Uint8Array(raw.length);
+    for (var i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
+    return out;
+  }
+
+  // The caller's voice, played on the doctor's side.
+  function playCaller(bytes, rate) {
+    if (!talk.play) return;
+    var samples = Math.floor(bytes.length / 2);
+    if (!samples) return;
+    var view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    var buffer = talk.play.createBuffer(1, samples, rate || MIC_RATE);
+    var channel = buffer.getChannelData(0);
+    for (var i = 0; i < samples; i++) channel[i] = view.getInt16(i * 2, true) / 0x8000;
+    var src = talk.play.createBufferSource();
+    src.buffer = buffer;
+    src.connect(talk.play.destination);
+    var now = talk.play.currentTime;
+    if (talk.playhead < now) talk.playhead = now + 0.05;
+    src.start(talk.playhead);
+    talk.playhead += buffer.duration;
+  }
+
+  async function startTalking(id) {
+    if (talk.ws) await stopTalking();
+
+    var proto = location.protocol === "https:" ? "wss://" : "ws://";
+    var ws = new WebSocket(proto + location.host +
+                           "/dashboard/live/" + id + "/talk?role=" + role);
+    talk.ws = ws;
+    talk.id = id;
+
+    ws.addEventListener("message", function (e) {
+      var m;
+      try { m = JSON.parse(e.data); } catch (err) { return; }
+      if (m.message_type === "caller_audio") {
+        playCaller(fromB64(m.audio), m.sample_rate);
+      }
+    });
+    ws.addEventListener("close", function () { stopTalking(); });
+
+    await new Promise(function (resolve, reject) {
+      ws.addEventListener("open", resolve, { once: true });
+      ws.addEventListener("error", reject, { once: true });
+    });
+
+    talk.stream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true }
+    });
+    talk.ctx = new AudioContext({ sampleRate: MIC_RATE });
+    talk.play = new AudioContext();
+    await talk.ctx.resume();
+    await talk.play.resume();
+    talk.playhead = talk.play.currentTime;
+
+    var blob = new Blob([WORKLET], { type: "application/javascript" });
+    await talk.ctx.audioWorklet.addModule(URL.createObjectURL(blob));
+    talk.node = new AudioWorkletNode(talk.ctx, "doc-mic", {
+      processorOptions: { rate: MIC_RATE, frame: MIC_FRAME }
+    });
+    talk.node.port.onmessage = function (e) {
+      if (!talk.ws || talk.ws.readyState !== 1) return;
+      talk.ws.send(JSON.stringify({
+        message_type: "doctor_audio",
+        audio: b64(new Uint8Array(e.data)),
+        format: "pcm",
+        sample_rate: MIC_RATE,
+        channels: 1
+      }));
+    };
+    talk.ctx.createMediaStreamSource(talk.stream).connect(talk.node);
+    setStatus("You are speaking to the caller. Microphone is live.");
+    refresh();
+  }
+
+  async function stopTalking() {
+    if (talk.ws) {
+      try { talk.ws.send(JSON.stringify({ message_type: "leave" })); } catch (e) {}
+      try { talk.ws.close(); } catch (e) {}
+    }
+    if (talk.stream) talk.stream.getTracks().forEach(function (t) { t.stop(); });
+    if (talk.ctx) { try { await talk.ctx.close(); } catch (e) {} }
+    if (talk.play) { try { await talk.play.close(); } catch (e) {} }
+    talk = { ws: null, id: null, ctx: null, play: null, node: null, stream: null,
+             playhead: 0 };
+    setStatus("");
+    refresh();
+  }
+
+  function setStatus(text) {
+    var el = document.getElementById("talk-status");
+    if (el) { el.textContent = text; el.style.display = text ? "" : "none"; }
+  }
+
+  function createCard(call) {
     var id = call.session_id;
     var div = document.createElement("div");
-    div.className = "call" + (call.needs_human && !call.taken_over ? " waiting" : "");
     div.innerHTML =
-      '<span class="badge' + (call.taken_over ? " live" : "") + '">' +
-        (call.taken_over ? "YOU ARE ON THIS CALL" :
-         call.needs_human ? "NEEDS A PERSON" : "IN PROGRESS") +
-      "</span>" +
-      '<p class="who">' + (call.patient_name || "Caller not yet identified") +
-        (call.callback_phone ? " · " + call.callback_phone : "") + "</p>" +
-      (call.reason
-        ? '<p class="reason">' + (call.reason_label || call.reason) + "</p>"
-        : "") +
+      '<span class="badge" data-badge></span>' +
+      '<p class="who" data-who></p>' +
+      '<p class="reason" data-reason></p>' +
       '<div class="transcript" data-t="' + id + '"></div>' +
-      '<div class="row">' +
-        (call.taken_over
-          ? '<input type="text" placeholder="Type what to say to the caller…" data-say="' + id + '">' +
-            '<button data-send="' + id + '">Say</button>' +
-            '<button class="ghost" data-release="' + id + '">Hand back</button>'
-          : '<button data-take="' + id + '">Take over</button>') +
-      "</div>";
+      '<div class="row" data-row></div>';
+    div.dataset.taken = "";
     return div;
+  }
+
+  function updateCard(div, call) {
+    div.className = "call" + (call.needs_human && !call.taken_over ? " waiting" : "");
+
+    var badge = div.querySelector("[data-badge]");
+    badge.className = "badge" + (call.taken_over ? " live" : "");
+    badge.textContent = call.taken_over
+      ? "YOU ARE ON THIS CALL"
+      : call.needs_human ? "NEEDS A PERSON" : "IN PROGRESS";
+
+    div.querySelector("[data-who]").textContent =
+      (call.patient_name || "Caller not yet identified") +
+      (call.callback_phone ? " · " + call.callback_phone : "");
+
+    var reason = div.querySelector("[data-reason]");
+    reason.textContent = call.reason ? (call.reason_label || call.reason) : "";
+    reason.style.display = call.reason ? "" : "none";
+
+    // Only rebuild the controls when the call actually changes hands. Otherwise the
+    // input survives every poll, keeping its text and the cursor.
+    var taken = call.taken_over ? "1" : "";
+    if (div.dataset.taken !== taken) {
+      div.dataset.taken = taken;
+      div.querySelector("[data-row]").innerHTML = controlsHtml(call);
+      if (call.taken_over) {
+        var box = div.querySelector("[data-say]");
+        if (box) box.focus();
+      }
+    }
   }
 
   async function refresh() {
@@ -235,19 +426,40 @@ quiet — what you type is spoken to the caller.</p>
     if (!res.ok) return;
     var calls = (await res.json()).calls || [];
     var host = document.getElementById("calls");
+    var seen = {};
 
-    if (!calls.length) {
+    var placeholder = host.querySelector(".empty");
+    if (calls.length && placeholder) placeholder.remove();
+
+    for (var i = 0; i < calls.length; i++) {
+      var call = calls[i];
+      seen[call.session_id] = true;
+      var div = cards[call.session_id];
+      if (!div) {
+        div = createCard(call);
+        cards[call.session_id] = div;
+        host.appendChild(div);
+      }
+      updateCard(div, call);
+    }
+
+    // Drop cards for calls that have ended.
+    Object.keys(cards).forEach(function (id) {
+      if (!seen[id]) {
+        cards[id].remove();
+        delete cards[id];
+      }
+    });
+
+    if (!calls.length && !host.querySelector(".empty")) {
       host.innerHTML = '<p class="empty">No calls in progress.</p>';
       return;
     }
 
-    host.innerHTML = "";
-    for (var i = 0; i < calls.length; i++) host.appendChild(card(calls[i]));
-
     for (var j = 0; j < calls.length; j++) {
-      (function (call) {
-        var t = document.querySelector('[data-t="' + call.session_id + '"]');
-        fetch(q("/dashboard/live/" + call.session_id + "/transcript"))
+      (function (c) {
+        var t = document.querySelector('[data-t="' + c.session_id + '"]');
+        fetch(q("/dashboard/live/" + c.session_id + "/transcript"))
           .then(function (r) { return r.ok ? r.json() : null; })
           .then(function (d) { if (d && t) renderTurns(t, d.turns || []); });
       })(calls[j]);
@@ -258,8 +470,25 @@ quiet — what you type is spoken to the caller.</p>
     var take = e.target.getAttribute("data-take");
     var send = e.target.getAttribute("data-send");
     var rel = e.target.getAttribute("data-release");
+    var mic = e.target.getAttribute("data-talk");
+
+    if (mic) {
+      if (talk.id === mic) { await stopTalking(); }
+      else {
+        try { await startTalking(mic); }
+        catch (err) {
+          setStatus("Could not start the microphone: " + (err && err.message ? err.message : err));
+        }
+      }
+      return;
+    }
+
     if (take) { await post("/dashboard/live/" + take + "/takeover"); refresh(); }
-    if (rel) { await post("/dashboard/live/" + rel + "/release"); refresh(); }
+    if (rel) {
+      if (talk.id === rel) await stopTalking();
+      await post("/dashboard/live/" + rel + "/release");
+      refresh();
+    }
     if (send) {
       var box = document.querySelector('[data-say="' + send + '"]');
       if (box && box.value.trim()) {
@@ -929,6 +1158,14 @@ class AgentCoreServer:
                 recorder.add_patient_audio(
                     base64.b64decode(audio), sample_rate=sample_rate
                 )
+
+            # Tee the caller's voice to the doctor when she is on the call, so she can
+            # actually hear them rather than reading a transcript. A no-op with no
+            # doctor attached, which is every ordinary call — this runs on every
+            # inbound frame, so it must cost nothing in the common case.
+            await self.live_handover.relay_caller_audio(
+                session.session_id, audio, sample_rate=sample_rate
+            )
             await session.manager.send_audio(
                 audio,
                 format=str(message.get("format", "pcm")),
@@ -1541,6 +1778,69 @@ def create_asgi_app(
             )
         return JSONResponse({"session_id": session_id, "spoken": True, "text": text})
 
+    async def live_doctor_ws_route(websocket: StarletteWebSocket) -> None:
+        """``WebSocket /dashboard/live/{id}/talk`` — the doctor's own voice on the call.
+
+        Typing was only ever half a handover. This joins her microphone to the
+        caller's audio channel and sends the caller's voice back to her, so it is a
+        real conversation rather than a relay.
+
+        Her audio goes to the caller as ``agent_audio`` — the frame their browser
+        already plays — so nothing has to change on the patient side.
+        """
+        await websocket.accept()
+        session_id = websocket.path_params["session_id"]
+
+        role = websocket.query_params.get("role")
+        try:
+            dashboard.require_view(role, DashboardView.CALL_ACTIVITY)
+        except DashboardHttpError:
+            await websocket.close(code=1008)
+            return
+
+        async def to_doctor(message: Mapping[str, Any]) -> None:
+            await websocket.send_json(dict(message))
+
+        call = runtime_server.live_calls.attach_doctor(session_id, to_doctor)
+        if call is None:
+            await websocket.send_json({"message_type": "error", "text": "call ended"})
+            await websocket.close()
+            return
+
+        # Tell the caller a person is here, exactly as the typed takeover does.
+        await runtime_server.live_handover.take_over(session_id)
+        await websocket.send_json(
+            {"message_type": "joined", "session_id": session_id}
+        )
+
+        try:
+            while True:
+                message = await websocket.receive_json()
+                kind = str(message.get("message_type", ""))
+                if kind == "leave":
+                    break
+                if kind != "doctor_audio":
+                    continue
+                audio = message.get("audio")
+                if not isinstance(audio, str) or not audio:
+                    continue
+                await runtime_server.live_handover.relay_doctor_audio(
+                    session_id,
+                    audio,
+                    sample_rate=int(message.get("sample_rate", 16000)),
+                    channels=int(message.get("channels", 1)),
+                )
+        except Exception:  # noqa: BLE001 - a dropped tab is not an error worth raising
+            logger.info("doctor disconnected from %s", session_id)
+        finally:
+            # Hand the call back rather than leaving the caller in silence if her
+            # tab closed unexpectedly.
+            runtime_server.live_calls.detach_doctor(session_id)
+            with contextlib.suppress(Exception):
+                await runtime_server.live_handover.release(session_id)
+            with contextlib.suppress(Exception, asyncio.CancelledError):
+                await websocket.close()
+
     async def live_console_route(request: StarletteRequest) -> Response:
         """``GET /live`` — the doctor's console for calls happening right now."""
         role = _live_guard(request)
@@ -1691,6 +1991,7 @@ def create_asgi_app(
                 methods=["POST"],
             ),
             Route("/dashboard/live/{session_id}/say", live_say_route, methods=["POST"]),
+            WebSocketRoute("/dashboard/live/{session_id}/talk", live_doctor_ws_route),
             Route("/dashboard/schedule", schedule_partial_route, methods=["GET"]),
             Route("/dashboard/activity", activity_partial_route, methods=["GET"]),
             Route("/dashboard/metrics", metrics_partial_route, methods=["GET"]),

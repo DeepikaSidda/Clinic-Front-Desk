@@ -110,6 +110,12 @@ class LiveCall:
     #: Set once the caller has been told nobody was able to pick up, so they are not
     #: told repeatedly.
     unattended_notified: bool = False
+    #: The doctor's own socket, once she has joined with a microphone.
+    #:
+    #: Present means a real two-way call: her voice reaches the caller and the
+    #: caller's reaches her. Typing is still there for when she would rather not
+    #: speak, or is somewhere she cannot.
+    doctor_send: Sender | None = None
 
     def summary(self) -> dict[str, Any]:
         """The shape the doctor's console renders."""
@@ -189,6 +195,27 @@ class LiveCallRegistry:
     def transcript_of(self, session_id: str) -> list[dict[str, str]]:
         call = self._calls.get(session_id)
         return list(call.transcript) if call is not None else []
+
+    def attach_doctor(self, session_id: str, send: Sender) -> LiveCall | None:
+        """Join the doctor's own socket to a call so she can speak and listen."""
+        call = self._calls.get(session_id)
+        if call is None:
+            return None
+        call.doctor_send = send
+        call.taken_over = True
+        return call
+
+    def detach_doctor(self, session_id: str) -> None:
+        """The doctor's socket closed. The agent takes the call back.
+
+        Deliberately hands the call back rather than leaving it silent: if her
+        browser tab dies mid-call, the caller should get the agent again, not dead
+        air.
+        """
+        call = self._calls.get(session_id)
+        if call is not None:
+            call.doctor_send = None
+            call.taken_over = False
 
 
 class LiveHandoverService:
@@ -281,6 +308,74 @@ class LiveHandoverService:
                     )
                     return True
             await asyncio.sleep(poll_seconds)
+
+    async def relay_doctor_audio(
+        self,
+        session_id: str,
+        audio: str,
+        *,
+        sample_rate: int = 16_000,
+        channels: int = 1,
+    ) -> bool:
+        """Put the doctor's own voice on the caller's audio channel.
+
+        Sent as ``agent_audio`` because that is the frame the caller's browser
+        already knows how to play — there is no second audio path to build on the
+        patient side, and inventing one would mean shipping a new client.
+
+        The rate is passed through rather than assumed. The doctor's browser may hand
+        us 16 kHz or whatever its hardware prefers, and the caller's client reads the
+        rate off each frame, so forwarding the true value is both simpler and
+        correct.
+        """
+        call = self._registry.get(session_id)
+        if call is None or not audio:
+            return False
+        await call.send(
+            {
+                "message_type": "agent_audio",
+                "session_id": session_id,
+                "audio": audio,
+                "format": "pcm",
+                "sample_rate": sample_rate,
+                "channels": channels,
+            }
+        )
+        return True
+
+    async def relay_caller_audio(
+        self,
+        session_id: str,
+        audio: str,
+        *,
+        sample_rate: int = 16_000,
+        channels: int = 1,
+    ) -> bool:
+        """Let the doctor hear the caller, when she is on the call.
+
+        A no-op when no doctor is attached, which is the normal case — this runs on
+        every inbound audio frame of every call, so it has to cost nothing when
+        nobody is listening.
+        """
+        call = self._registry.get(session_id)
+        if call is None or call.doctor_send is None or not audio:
+            return False
+        try:
+            await call.doctor_send(
+                {
+                    "message_type": "caller_audio",
+                    "session_id": session_id,
+                    "audio": audio,
+                    "format": "pcm",
+                    "sample_rate": sample_rate,
+                    "channels": channels,
+                }
+            )
+        except Exception as exc:  # noqa: BLE001 - her socket dying must not end the call
+            logger.warning("doctor socket send failed for %s: %s", session_id, exc)
+            self._registry.detach_doctor(session_id)
+            return False
+        return True
 
     async def release(self, session_id: str) -> bool:
         """Hand the call back to the agent."""

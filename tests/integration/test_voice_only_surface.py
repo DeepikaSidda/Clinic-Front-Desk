@@ -76,6 +76,38 @@ def test_no_dashboard_path_is_routed_at_all(voice_client: Any, path: str) -> Non
     assert response.status_code == 404, path
 
 
+def test_the_doctor_talk_socket_is_not_routed_publicly(voice_client: Any) -> None:
+    """The doctor's microphone bridge, checked as a WebSocket rather than a GET.
+
+    This one is deliberately not in :data:`PRIVATE`. It is a ``WebSocketRoute``, and
+    a GET to one answers 404 whether or not the route is registered — so the HTTP
+    sweep would have passed with the socket wide open. The honest signal is whether
+    the handshake is *accepted*: the handler calls ``accept()`` as its first act, so
+    a refused connect means there is no handler there.
+
+    Worth the extra test: this socket streams a live caller's voice outward and lets
+    whoever connects speak to them in the clinic's voice.
+    """
+    with pytest.raises(Exception):  # noqa: B017 - any refusal is a pass; accept is the failure
+        with voice_client.websocket_connect(
+            "/dashboard/live/abc/talk?role=doctor"
+        ) as socket:
+            socket.receive_json()
+
+
+def test_the_full_app_does_route_the_doctor_talk_socket(full_client: Any) -> None:
+    """The negative above only means something if the positive holds locally.
+
+    Without this, deleting the route entirely would make the lockdown test pass.
+    """
+    with full_client.websocket_connect(
+        "/dashboard/live/abc/talk?role=doctor"
+    ) as socket:
+        # No such call is in progress, so the handler says so and closes. That it
+        # answered at all is the point.
+        assert socket.receive_json()["message_type"] == "error"
+
+
 def test_patient_records_are_unreachable_even_with_a_doctor_role(
     voice_client: Any,
 ) -> None:

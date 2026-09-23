@@ -58,6 +58,11 @@ PRIVATE = (
     "/dashboard/live/any/transcript",
 )
 
+#: ``/dashboard/live/{id}/talk`` is deliberately absent from PRIVATE: it is a
+#: WebSocketRoute, and a GET to one answers 404 in *both* modes, so listing it here
+#: would have added a check that passes even if the socket were wide open. It is
+#: probed as a real upgrade further down instead.
+
 #: Asking as the doctor, because that is what a judge with the link would do.
 #: The role is a query parameter, so there is nothing stopping them.
 AS_DOCTOR = "?role=doctor"
@@ -195,6 +200,17 @@ def main() -> None:
         print(f"  {'ok  ' if ok else 'FAIL'} {path}{AS_DOCTOR} -> {code}")
         if not ok:
             failures.append(f"exposed {path}")
+
+    # The doctor's talk socket is the worst thing on the route table to leave open:
+    # it streams a live caller's voice out and lets whoever connects speak to them as
+    # the clinic. It is a WebSocketRoute, so a plain GET answers 404 whether or not
+    # the route exists — the HTTP sweep above cannot see it. Probe the upgrade itself
+    # and require that it does *not* reach 101.
+    talk = "/dashboard/live/any/talk" + AS_DOCTOR
+    upgraded, detail = websocket_upgrade(talk)
+    print(f"  {'FAIL' if upgraded else 'ok  '} wss://{HOST}{talk} -> {detail}")
+    if upgraded:
+        failures.append("exposed /dashboard/live/{id}/talk")
 
     # /invocations is POST-only and is the JSON tool surface: booking, cancelling
     # and patient lookup without going through speech at all. GET would report a
