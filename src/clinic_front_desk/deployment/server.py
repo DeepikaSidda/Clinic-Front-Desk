@@ -439,7 +439,12 @@ press Say.</p>
       '<p class="reason" data-reason></p>' +
       '<div class="transcript" data-t="' + id + '"></div>' +
       '<div class="row" data-row></div>';
-    div.dataset.taken = "";
+    // A sentinel that cannot equal either real state, so the first updateCard always
+    // renders the controls. This was "" — which *is* the not-taken-over value, so the
+    // equality check below saw no change and the button row stayed empty for the
+    // whole life of the card. Since those buttons were the only way to pick a call
+    // up, nothing could be taken over at all.
+    div.dataset.taken = "unset";
     return div;
   }
 
