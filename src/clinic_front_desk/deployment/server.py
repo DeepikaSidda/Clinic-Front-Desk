@@ -56,6 +56,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import contextlib
+import hashlib
 import enum
 import json
 import logging
@@ -163,6 +164,8 @@ _LIVE_CONSOLE_HTML = """<!doctype html>
   .turn b { text-transform: capitalize; color: #7dd3fc; font-weight: 700; }
   .turn.patient b { color: #fca5a5; }
   .row { display: flex; gap: .5rem; margin-top: .5rem; }
+  .build { color: #6b7280; font-size: .7rem; margin-top: 1.5rem;
+           font-family: ui-monospace, monospace; }
   input[type=text] { flex: 1; padding: .55rem; border: 1px solid #d1d5db;
                      border-radius: .4rem; font-size: 1rem; }
   button { padding: .55rem .9rem; border-radius: .4rem; border: 0;
@@ -574,9 +577,20 @@ press Say.</p>
   setInterval(refresh, 2000);
 })();
 </script>
+<p class="build">console build __BUILD__</p>
 </body>
 </html>
 """
+
+#: A short fingerprint of the console, shown in the corner of the page.
+#:
+#: Earned its place. Three separate times a fix was reported as working because the
+#: server was serving it, while the browser was still running a cached copy with the
+#: old bug — and there was no way to tell the two apart by looking. Now there is: if
+#: this does not match the running server, the page is stale.
+_LIVE_CONSOLE_BUILD = hashlib.sha256(_LIVE_CONSOLE_HTML.encode("utf-8")).hexdigest()[:8]
+
+_LIVE_CONSOLE_HTML = _LIVE_CONSOLE_HTML.replace("__BUILD__", _LIVE_CONSOLE_BUILD)
 
 #: Runtime session id header AgentCore sets on invocations and WS upgrades.
 SESSION_ID_HEADER = "X-Amzn-Bedrock-AgentCore-Runtime-Session-Id"
@@ -1908,7 +1922,21 @@ def create_asgi_app(
         role = _live_guard(request)
         if role is None:
             return error_response("Access denied.", 403, "AccessDeniedException")
-        return StarletteResponse(_LIVE_CONSOLE_HTML, media_type="text/html")
+        return StarletteResponse(
+            _LIVE_CONSOLE_HTML,
+            media_type="text/html",
+            # This page *is* its JavaScript — the console's whole behaviour is
+            # inlined, so a cached copy is stale code, not just stale text. Served
+            # without these headers it silently kept handing back an old console
+            # after deploys: buttons missing, fixes apparently not applied, and
+            # nothing on the server side to show for it. A doctor picking up a live
+            # call must not be looking at a build from before the last restart.
+            headers={
+                "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+                "Pragma": "no-cache",
+                "Expires": "0",
+            },
+        )
 
     async def resolve_decision_route(request: StarletteRequest) -> Response:
         """``POST /dashboard/decisions/{id}/{action}`` — approve/dismiss (Req 14.3, 14.4)."""
