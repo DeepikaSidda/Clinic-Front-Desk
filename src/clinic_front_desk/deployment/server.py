@@ -592,6 +592,14 @@ _LIVE_CONSOLE_BUILD = hashlib.sha256(_LIVE_CONSOLE_HTML.encode("utf-8")).hexdige
 
 _LIVE_CONSOLE_HTML = _LIVE_CONSOLE_HTML.replace("__BUILD__", _LIVE_CONSOLE_BUILD)
 
+#: Transcript roles that belong to the person who rang the clinic.
+#:
+#: Nova Sonic labels the caller ``"user"``. Spelled out here because a guard that
+#: silences "everything that is not the caller" gets this exactly backwards if it
+#: guesses the name — and the failure is quiet: the caller's own words vanish from
+#: the record while the agent's keep coming.
+CALLER_ROLES = frozenset({"user", "patient"})
+
 #: Runtime session id header AgentCore sets on invocations and WS upgrades.
 SESSION_ID_HEADER = "X-Amzn-Bedrock-AgentCore-Runtime-Session-Id"
 
@@ -1033,6 +1041,29 @@ class AgentCoreServer:
                 # Mirrored into the registry so a doctor joining mid-call can read
                 # what they missed rather than asking the caller to start again.
                 self.live_calls.record_turn(session.session_id, turn.role, turn.text)
+                # Silencing the agent's audio was not enough: its words still arrived
+                # as transcript and the caller read them on screen while talking to a
+                # person. Anything the model generates once a human is on the call is
+                # from a conversation it is no longer part of. Its own lines are
+                # dropped; the caller's are not, so the record stays complete.
+                #
+                # Still needed even though the model is now fed silence: generation
+                # already in flight at the moment of takeover has to land somewhere.
+                # Silencing the agent's audio was not enough: its words still arrived
+                # as transcript and the caller read them on screen while talking to a
+                # person. Anything the model generates once a human is on the call
+                # belongs to a conversation it is no longer part of.
+                #
+                # The caller's own turns still go through, so the record stays
+                # complete. Nova Sonic labels those "user" — not "patient", which is
+                # what this guard checked at first, and which would have dropped
+                # exactly the lines it was meant to keep.
+                #
+                # Still needed even though the model is fed silence while held:
+                # generation already in flight at the moment of takeover has to land
+                # somewhere.
+                if live.taken_over and turn.role not in CALLER_ROLES:
+                    return
                 await send(
                     {
                         "message_type": "transcript",
@@ -1051,6 +1082,12 @@ class AgentCoreServer:
                 patient. This lets it flush its queue, so the budget holds from
                 the patient's side of the call too.
                 """
+                # Nothing to interrupt when the agent is not the one talking. Left
+                # unguarded this put "interrupted — playback stopped" on the caller's
+                # screen every time they spoke to the doctor, which reads as the call
+                # malfunctioning at the exact moment it is working as intended.
+                if live.taken_over:
+                    return
                 await send(
                     {
                         "message_type": "barge_in",
@@ -1218,7 +1255,17 @@ class AgentCoreServer:
             if message_type == "user_text":
                 text = message.get("text")
                 if isinstance(text, str) and text:
-                    await session.manager.send_text(text)
+                    # Same rule as audio: with a human on the call the model is not a
+                    # participant, so it is not given the turn either. Recorded and
+                    # relayed to the doctor, just not answered by the agent.
+                    # Same rule as audio: with a human on the call the model is not a
+                    # participant, so it is not given the turn either. Still recorded,
+                    # just not answered by the agent.
+                    held = self.live_calls.get(session.session_id)
+                    if held is not None and held.taken_over:
+                        self.live_calls.record_turn(session.session_id, "user", text)
+                    else:
+                        await session.manager.send_text(text)
                 continue
             audio = message.get("audio")
             if audio is None:
@@ -1230,10 +1277,11 @@ class AgentCoreServer:
                 logger.debug("ignoring non-string audio payload")
                 continue
             sample_rate = int(message.get("sample_rate", 16000))
+            raw_audio = base64.b64decode(audio)
             if recorder is not None:
-                recorder.add_patient_audio(
-                    base64.b64decode(audio), sample_rate=sample_rate
-                )
+                # The real audio, always. A call a human took over is still a call
+                # the clinic made, and the recording should reflect what was said.
+                recorder.add_patient_audio(raw_audio, sample_rate=sample_rate)
 
             # Tee the caller's voice to the doctor when she is on the call, so she can
             # actually hear them rather than reading a transcript. A no-op with no
@@ -1242,6 +1290,23 @@ class AgentCoreServer:
             await self.live_handover.relay_caller_audio(
                 session.session_id, audio, sample_rate=sample_rate
             )
+
+            # While a human holds the call, the model must stop *listening*, not just
+            # stop speaking. Muting only its output left it hearing the whole
+            # doctor-patient conversation and forming replies to it: it answered
+            # questions meant for the doctor, and its queued turns surfaced in the
+            # middle of theirs.
+            #
+            # Silence rather than sending nothing at all. Nova Sonic holds a
+            # bidirectional stream, and starving it for the length of a real
+            # conversation risks it closing — which would break the hand-back, when
+            # the whole point of handing back is that the agent is still there.
+            # Silence keeps the stream warm and triggers no voice activity, so the
+            # model neither responds nor accumulates a conversation it was not part
+            # of.
+            live_call = self.live_calls.get(session.session_id)
+            if live_call is not None and live_call.taken_over:
+                audio = base64.b64encode(bytes(len(raw_audio))).decode("ascii")
             await session.manager.send_audio(
                 audio,
                 format=str(message.get("format", "pcm")),

@@ -94,6 +94,19 @@ UNATTENDED_MESSAGE = (
     "opening hours. Which would you prefer?"
 )
 
+#: Written into the transcript at each end of a human-held stretch of a call.
+#:
+#: While a person holds the call the model is fed silence, so it transcribes nothing —
+#: the written record would otherwise just stop, and look broken rather than handed
+#: over. The call recording captures the conversation itself.
+HANDOVER_MARKER = (
+    "— handed to a member of the clinic team; their conversation with the caller "
+    "continues on the call recording —"
+)
+
+#: The other end of that stretch.
+HANDBACK_MARKER = "— handed back to the agent —"
+
 #: A send callable bound to one caller's WebSocket.
 Sender = Callable[[dict[str, Any]], Awaitable[None]]
 
@@ -282,6 +295,12 @@ class LiveHandoverService:
         if call is None:
             return False
         call.taken_over = True
+        # Mark the boundary in the transcript. With a human on the call the model is
+        # fed silence, so it stops transcribing too — the written record simply stops
+        # mid-conversation. The audio recording still has everything, but a reader of
+        # the transcript alone would see an unexplained gap and reasonably assume
+        # something broke. This says what happened.
+        self._registry.record_turn(session_id, "system", HANDOVER_MARKER)
         await call.send(
             {
                 "message_type": "human_joined",
@@ -421,6 +440,7 @@ class LiveHandoverService:
         if call is None:
             return False
         call.taken_over = False
+        self._registry.record_turn(session_id, "system", HANDBACK_MARKER)
         await call.send(
             {"message_type": "human_left", "session_id": session_id}
         )

@@ -82,6 +82,119 @@ def http(method: str, path: str, body: dict[str, Any] | None = None) -> tuple[in
         return 0, f"{type(exc).__name__}: {exc}"
 
 
+#: A question the agent demonstrably answers — this is the shape of turn that caused
+#: the reported bug, where it offered appointment slots over the top of the doctor.
+PROBE_QUESTION = "What are your opening hours on Monday?"
+
+
+def speech(text: str) -> bytes:
+    """``text`` as 16 kHz mono PCM, via Polly.
+
+    Needed because a text turn is not a probe the model reliably answers, and a
+    synthetic tone is not speech. An earlier version of this script sent
+    ``user_text`` and reported a pass with the fix reverted — it proved nothing. The
+    only probe worth trusting is one confirmed to provoke a reply.
+    """
+    import boto3
+
+    client = boto3.client("polly", region_name="us-east-1")
+    response = client.synthesize_speech(
+        Text=text,
+        OutputFormat="pcm",
+        VoiceId="Joanna",
+        Engine="neural",
+        SampleRate="16000",
+    )
+    audio: bytes = response["AudioStream"].read()
+    return audio
+
+
+#: 16 kHz, 16-bit mono: one second of audio is 32000 bytes.
+BYTES_PER_SECOND = 32_000
+
+
+async def say_as_caller(
+    socket: Any,
+    pcm: bytes,
+    *,
+    frame: int = 1024,
+    lead: float = 0.4,
+    tail: float = 1.8,
+) -> None:
+    """Stream PCM in at roughly real time, as a browser microphone would.
+
+    Two details matter, and both were wrong first time:
+
+    * **Paced, not burst.** Delivered all at once, Nova Sonic's voice-activity
+      detection does not see a turn the way it does from a live microphone.
+    * **Padded with silence.** A real microphone keeps streaming after the speaker
+      stops, and that trailing silence is what marks the end of the turn. Cutting the
+      stream dead at the last word meant the model never decided the caller had
+      finished, so it never replied at all.
+    """
+    padded = (
+        bytes(int(BYTES_PER_SECOND * lead)) + pcm + bytes(int(BYTES_PER_SECOND * tail))
+    )
+    for offset in range(0, len(padded), frame):
+        chunk = padded[offset : offset + frame]
+        await socket.send(
+            json.dumps(
+                {
+                    "message_type": "user_audio",
+                    "audio": base64.b64encode(chunk).decode("ascii"),
+                    "format": "pcm",
+                    "sample_rate": 16000,
+                    "channels": 1,
+                }
+            )
+        )
+        await asyncio.sleep(frame / 2 / 16000)
+
+
+async def _unused(socket: Any, pcm: bytes, *, frame: int = 1024) -> None:
+    for offset in range(0, len(pcm), frame):
+        chunk = pcm[offset : offset + frame]
+        await socket.send(
+            json.dumps(
+                {
+                    "message_type": "user_audio",
+                    "audio": base64.b64encode(chunk).decode("ascii"),
+                    "format": "pcm",
+                    "sample_rate": 16000,
+                    "channels": 1,
+                }
+            )
+        )
+        await asyncio.sleep(frame / 2 / 16000)
+
+
+#: What the caller's own transcribed speech is labelled. Nova Sonic says "user"; the
+#: handover paths say "patient". Getting this wrong made an earlier run of this script
+#: report the caller's own question back as proof the agent had answered.
+CALLER_ROLES = ("user", "patient")
+
+
+def agent_lines(messages: list[dict[str, Any]]) -> list[str]:
+    """Anything the model said, as opposed to the caller or the human."""
+    return [
+        str(m.get("text", ""))
+        for m in messages
+        if m.get("message_type") == "transcript"
+        and m.get("role") not in CALLER_ROLES
+        and m.get("role") not in ("doctor", "human")
+    ]
+
+
+def agent_frames(messages: list[dict[str, Any]]) -> int:
+    """Count of assistant audio frames — what the caller actually *hears*.
+
+    The strongest available signal. The reported bug was hearing the agent, and its
+    reply arrives as audio well before any text turn does, so counting frames catches
+    it where counting transcript lines can miss it entirely.
+    """
+    return sum(1 for m in messages if m.get("message_type") == "agent_audio")
+
+
 def collect(messages: list[dict[str, Any]], kind: str) -> bytes:
     """All audio of one message type, concatenated, so a payload can be searched for."""
     out = bytearray()
@@ -134,6 +247,39 @@ async def run(seconds: float) -> int:
             caller_reader.cancel()
             return 1
         print(f"  ok    call open: {session_id}")
+
+        # 0. Prove the probe provokes a reply *before* anyone takes the call.
+        #
+        # Without this the silence checked later is worthless: a probe the agent
+        # would ignore anyway passes whether the fix is present or not. That exact
+        # mistake was made here once already.
+        try:
+            probe_pcm = speech(PROBE_QUESTION)
+        except Exception as exc:  # noqa: BLE001
+            print(f"  FAIL  could not synthesise the probe: {type(exc).__name__}: {exc}")
+            caller_reader.cancel()
+            return 1
+
+        mark = len(heard_by_caller)
+        await say_as_caller(caller, probe_pcm)
+        for _ in range(160):
+            # Audio, not text: the agent's reply is heard well before any transcript
+            # line for it arrives, and on a short question none may arrive at all.
+            if agent_frames(heard_by_caller[mark:]):
+                break
+            await asyncio.sleep(0.25)
+        await asyncio.sleep(2.0)
+
+        baseline = agent_frames(heard_by_caller[mark:])
+        if baseline:
+            print(f"  ok    probe is valid: the agent answered with {baseline} frames")
+        else:
+            print(
+                "  FAIL  the agent never answered the probe, so this script cannot "
+                "tell silence-because-fixed from silence-because-ignored"
+            )
+            caller_reader.cancel()
+            return 1
 
         # 1. the doctor picks up with her microphone
         talk = TALK_URL.format(session_id=session_id)
@@ -233,7 +379,56 @@ async def run(seconds: float) -> int:
             print("  FAIL  the caller's audio never reached the doctor")
             failures.append("caller -> doctor")
 
-        # 5. her tab dying hands the call back rather than leaving dead air
+        # 5. the agent stays out of it
+        #
+        # The bug this catches, reported from a real call: the caller was talking to
+        # the doctor and the agent kept answering over the top — offering slots,
+        # asking for a mobile number, and printing "interrupted — playback stopped"
+        # every time the caller spoke. Muting its audio was not enough; it was still
+        # being fed the conversation and still replying through every other channel.
+        # The same question that just worked, asked again with the doctor on the line.
+        mark = len(heard_by_caller)
+        await say_as_caller(caller, probe_pcm)
+        await asyncio.sleep(6.0)  # generous: it answered inside this window above
+        after = heard_by_caller[mark:]
+
+        # The doctor sends nothing during this window, so any assistant audio on the
+        # caller's channel is the agent talking over her — which is precisely what
+        # the caller complained of hearing.
+        spoke = agent_frames(after)
+        intruded = agent_lines(after)
+        if spoke or intruded:
+            detail = f"{spoke} audio frames"
+            if intruded:
+                detail += f', text: "{intruded[0][:60]}"'
+            print(f"  FAIL  the agent talked over the doctor: {detail}")
+            failures.append("agent interjected")
+        else:
+            print(
+                "  ok    the agent stayed silent on the same question it just answered"
+            )
+
+        # Feeding the model silence also stops it transcribing, so the written record
+        # pauses for the human-held stretch — the conversation lives on the call
+        # recording instead. The gap has to be *marked*, or a reader of the transcript
+        # would take it for a fault.
+        code, body = http("GET", f"/dashboard/live/{session_id}/transcript" + ROLE)
+        turns = (body or {}).get("turns", []) if code == 200 else []
+        if any("handed to a member of the clinic team" in t.get("text", "") for t in turns):
+            print("  ok    the transcript records where the human took over")
+        else:
+            print(f"  FAIL  nothing marks the handover in the transcript ({code})")
+            failures.append("handover not marked")
+
+        barged = [m for m in after if m.get("message_type") == "barge_in"]
+        if barged:
+            print(f"  FAIL  {len(barged)} barge-in notices reached the caller")
+            failures.append("barge_in leaked")
+        else:
+            print("  ok    no spurious 'interrupted' notices on the caller's screen")
+
+        # And the agent is genuinely still there for the hand-back.
+        # 6. her tab dying hands the call back rather than leaving dead air
         await doctor.close()
         await asyncio.sleep(0.8)
         code, body = http("GET", "/dashboard/live" + ROLE)
