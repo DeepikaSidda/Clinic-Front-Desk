@@ -373,6 +373,58 @@ press Say.</p>
     refresh();
   }
 
+  // --- noticing a call at all -----------------------------------------------
+  //
+  // The console was silent: a call could sit flagged for a person while the doctor
+  // was reading something else on the page, and the first she knew of it was the
+  // agent apologising to the caller. Ring, and put it in the tab title, so the page
+  // does not have to be the thing being looked at.
+  var alerted = {};
+
+  function ring() {
+    try {
+      var ctx = new AudioContext();
+      // Two short rising blips. Synthesised rather than a file so there is no asset
+      // to serve and nothing to 404 on a fresh deploy.
+      [0, 0.28].forEach(function (offset) {
+        var osc = ctx.createOscillator();
+        var gain = ctx.createGain();
+        osc.frequency.value = 880;
+        osc.type = "sine";
+        gain.gain.setValueAtTime(0.0001, ctx.currentTime + offset);
+        gain.gain.exponentialRampToValueAtTime(0.25, ctx.currentTime + offset + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + offset + 0.22);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(ctx.currentTime + offset);
+        osc.stop(ctx.currentTime + offset + 0.24);
+      });
+      setTimeout(function () { try { ctx.close(); } catch (e) {} }, 1200);
+    } catch (e) { /* no audio available; the title still changes */ }
+  }
+
+  function announce(calls) {
+    var waiting = calls.filter(function (c) { return c.needs_human && !c.taken_over; });
+
+    // Ring once per call, not once per poll — this runs every two seconds.
+    waiting.forEach(function (c) {
+      if (!alerted[c.session_id]) {
+        alerted[c.session_id] = true;
+        ring();
+      }
+    });
+
+    var live = {};
+    calls.forEach(function (c) { live[c.session_id] = true; });
+    Object.keys(alerted).forEach(function (id) {
+      if (!live[id]) delete alerted[id];
+    });
+
+    document.title = waiting.length
+      ? "(" + waiting.length + ") CALL WAITING — Live calls"
+      : (calls.length ? "(" + calls.length + ") Live calls" : "Live calls");
+  }
+
   function setStatus(text) {
     var el = document.getElementById("talk-status");
     if (el) { el.textContent = text; el.style.display = text ? "" : "none"; }
@@ -425,6 +477,11 @@ press Say.</p>
     var res = await fetch(q("/dashboard/live"));
     if (!res.ok) return;
     var calls = (await res.json()).calls || [];
+
+    // Before the early return below, so the tab title still clears when the last
+    // call ends.
+    announce(calls);
+
     var host = document.getElementById("calls");
     var seen = {};
 

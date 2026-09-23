@@ -32,6 +32,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import logging
+import os
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
@@ -54,10 +55,35 @@ FRAME_SAMPLES = 512
 
 #: How long a caller waits for a person before the agent comes back to them.
 #:
-#: Short on purpose. This is someone holding a phone in silence, not a support queue
-#: — twenty seconds of nothing is long enough to hang up and conclude the clinic does
-#: not answer its phone.
-UNATTENDED_AFTER_SECONDS = 20.0
+#: This is someone holding a phone in silence, not a support queue, so it cannot be
+#: generous. But the first value here was twenty seconds, and that was measured
+#: against the wrong thing: it is the time a *caller* will wait, not the time a
+#: doctor needs to pick up. Actually answering means noticing the console, finding
+#: the call, clicking, and clearing the browser's microphone prompt — the permission
+#: dialog alone eats several seconds the first time. Twenty seconds meant the agent
+#: apologised while the doctor was mid-pickup, which is worse than either outcome on
+#: its own: the caller is told nobody is coming, and then someone arrives.
+#:
+#: Forty-five is long enough to be answerable and is not silent — see
+#: :data:`HOLDING_MESSAGE`, which fills it.
+UNATTENDED_AFTER_SECONDS = float(
+    os.environ.get("CLINIC_UNATTENDED_AFTER_SECONDS") or 45.0
+)
+
+#: How long before the caller is reassured that someone is still being fetched.
+#:
+#: Lengthening the deadline above without this would have traded a premature apology
+#: for a longer silence, which is the very thing the watcher exists to prevent.
+HOLDING_AFTER_SECONDS = float(os.environ.get("CLINIC_HOLDING_AFTER_SECONDS") or 12.0)
+
+#: Said once while the caller is still waiting and someone may yet pick up.
+#:
+#: Deliberately does not promise anyone is coming — it may turn out nobody does, and
+#: :data:`UNATTENDED_MESSAGE` then has to be able to follow it honestly.
+HOLDING_MESSAGE = (
+    "Thanks for holding — I'm still trying to get someone at the clinic for you. "
+    "Please stay on the line a moment longer."
+)
 
 #: What the caller hears when nobody picked up. Says what is true, and gives them
 #: somewhere to go: an apology with no route is just a longer dead end.
@@ -110,6 +136,8 @@ class LiveCall:
     #: Set once the caller has been told nobody was able to pick up, so they are not
     #: told repeatedly.
     unattended_notified: bool = False
+    #: Set once the caller has been reassured that someone is still being fetched.
+    holding_notified: bool = False
     #: The doctor's own socket, once she has joined with a microphone.
     #:
     #: Present means a real two-way call: her voice reaches the caller and the
@@ -269,6 +297,7 @@ class LiveHandoverService:
         session_id: str,
         *,
         after_seconds: float = UNATTENDED_AFTER_SECONDS,
+        holding_seconds: float = HOLDING_AFTER_SECONDS,
         poll_seconds: float = 1.0,
     ) -> bool:
         """Come back to a caller nobody picked up, instead of leaving them in silence.
@@ -294,6 +323,15 @@ class LiveHandoverService:
                 return False
             if call.needs_human_since is not None:
                 waited = time.monotonic() - call.needs_human_since
+                # Fill the wait before judging it. Without this the longer deadline
+                # is just a longer silence.
+                if (
+                    not call.holding_notified
+                    and holding_seconds < after_seconds
+                    and waited >= holding_seconds
+                ):
+                    call.holding_notified = True
+                    await self.speak(session_id, HOLDING_MESSAGE, role="agent")
                 if waited >= after_seconds:
                     call.unattended_notified = True
                     # Spoken, not just written to the transcript. The caller is
@@ -460,6 +498,8 @@ __all__ = [
     "FRAME_SAMPLES",
     "POLLY_SAMPLE_RATE",
     "REASON_LABELS",
+    "HOLDING_AFTER_SECONDS",
+    "HOLDING_MESSAGE",
     "UNATTENDED_AFTER_SECONDS",
     "UNATTENDED_MESSAGE",
     "LiveCall",

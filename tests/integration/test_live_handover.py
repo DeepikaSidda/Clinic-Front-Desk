@@ -261,6 +261,69 @@ def test_the_caller_is_told_when_nobody_picks_up() -> None:
     assert "nobody at the clinic has been able to pick up" in spoken[0]["text"].lower()
 
 
+def test_the_caller_is_reassured_before_being_given_up_on() -> None:
+    """The wait has to be filled, or a longer deadline is just a longer silence.
+
+    The pickup deadline was raised from 20s to 45s because 20s was not enough time
+    for a doctor to answer — she was still clearing the microphone prompt when the
+    agent apologised on her behalf. That only helps if the caller hears something
+    during the extra time.
+    """
+    service, registry, recorder = _service()
+    registry.mark_needs_human(SESSION, "patient_request")
+
+    told = _run(
+        service.watch_unattended(
+            SESSION, after_seconds=0.25, holding_seconds=0.05, poll_seconds=0.01
+        )
+    )
+
+    spoken = [m["text"].lower() for m in recorder.of_type("transcript")]
+    assert any("still trying to get someone" in t for t in spoken), spoken
+    # And the apology still lands afterwards, in that order.
+    assert told is True
+    holding = next(i for i, t in enumerate(spoken) if "still trying" in t)
+    apology = next(i for i, t in enumerate(spoken) if "been able to pick up" in t)
+    assert holding < apology, "reassurance has to come before giving up"
+
+
+def test_the_reassurance_is_skipped_when_it_would_not_fit() -> None:
+    """A deadline at or below the hold point must not produce both messages at once."""
+    service, registry, recorder = _service()
+    registry.mark_needs_human(SESSION, "patient_request")
+
+    _run(
+        service.watch_unattended(
+            SESSION, after_seconds=0.05, holding_seconds=0.05, poll_seconds=0.01
+        )
+    )
+
+    spoken = [m["text"].lower() for m in recorder.of_type("transcript")]
+    assert not any("still trying to get someone" in t for t in spoken), spoken
+
+
+def test_a_doctor_who_picks_up_during_the_hold_stops_the_apology() -> None:
+    """The bug this whole change exists to fix: apologising mid-pickup."""
+    service, registry, recorder = _service()
+    registry.mark_needs_human(SESSION, "patient_request")
+
+    async def scenario() -> bool:
+        task = asyncio.create_task(
+            service.watch_unattended(
+                SESSION, after_seconds=0.4, holding_seconds=0.05, poll_seconds=0.01
+            )
+        )
+        await asyncio.sleep(0.1)  # she is reading the console; hold line has gone out
+        registry.attach_doctor(SESSION, recorder)  # she presses Talk
+        return await task
+
+    told = _run(scenario())
+
+    assert told is False, "she answered, so the caller must not be told nobody did"
+    spoken = [m["text"].lower() for m in recorder.of_type("transcript")]
+    assert not any("been able to pick up" in t for t in spoken), spoken
+
+
 def test_the_message_is_spoken_not_just_written() -> None:
     """The caller is holding a phone, not watching a screen."""
     service, registry, recorder = _service()
