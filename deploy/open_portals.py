@@ -35,6 +35,10 @@ PORTALS: tuple[tuple[str, str], ...] = (
     # blank page in front of the doctor. Still reachable at /onboarding if the
     # configuration ever needs rebuilding from scratch.
     ("Voice client", "/voice"),
+    # The live-call console: who is on the line right now, and the controls to take
+    # the call over by voice or by typing. Listed last so it lands as the frontmost
+    # tab, since it is the one worth watching while a call is actually in progress.
+    ("Live calls", "/live?role=doctor"),
 )
 
 
