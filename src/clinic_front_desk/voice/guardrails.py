@@ -7,11 +7,18 @@ The Voice_Front_Desk enforces its administrative-only rule with defense in depth
   :mod:`clinic_front_desk.voice.prompts` (Req 10.1, 10.6).
 - **Tool layer** — *this module*. ``GuardrailPolicy`` classifies each patient
   turn as administrative vs. clinical / symptom-routing / out-of-rules and
-  drives the refuse-and-escalate behavior. Crucially there is **no symptom →
-  service mapping code path**: a service is selected only when the patient
-  explicitly names an offered service (exact match). When routing would require
-  interpreting a symptom, no service is selected and ``flag_for_human`` must be
-  invoked (Req 10.2, 10.3, 10.4).
+  drives the refuse-and-escalate behavior. Crucially there is **no code path
+  that *infers* a service from a symptom**. A service is reached one of exactly
+  two ways: the patient names an offered service (exact match), or a mapping the
+  **doctor authored** is relayed verbatim via ``suggest_service_for_problem``.
+  Where she has written no rule, no service is selected and ``flag_for_human``
+  must be invoked (Req 10.2, 10.3, 10.4).
+
+  The distinction matters more than it looks. Doctor-authored routing is not a
+  weakening of this guarantee, it is the same guarantee: the judgement is still
+  a clinician's, and the agent is still only reading it out. What remains
+  impossible is the model deciding for itself which investigation a symptom
+  warrants.
 
 The policy is a deterministic decision over the *structured signals* a turn
 carries (the interpretation the reasoning layer / Nova Sonic extracts), modelled

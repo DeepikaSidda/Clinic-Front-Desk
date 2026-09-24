@@ -81,11 +81,31 @@ The appointment records **the service the caller asked for**, not the label the 
 
 The agent is genuinely useful about the clinic itself. It will explain **what a service involves** in plain language, drawn from the doctor's own uploaded documents — what a hearing test is, roughly how long an appointment runs, what to bring, how to find the place, when to arrive. It lists every service the clinic offers, so a caller who does not know the vocabulary can still get somewhere.
 
-What it does not do is decide *which* service a person's symptom needs. When a caller describes something they are feeling, the agent gives them what it reliably knows, then says plainly that **the doctor will confirm what is right for them** — and offers to book the consultation where that conversation can happen, or to put them through to a person.
+**Symptom routing the doctor wrote herself.** A caller who says *"I've got severe itching inside my nose"* does not know that what they need is called an ENT Consultation. They should not have to. So the agent routes described problems to services — and the routing is **authored by the doctor, stored in the database, and only relayed by the agent.**
 
-That boundary is a product decision, not a limitation we ran out of time to fix. A front desk that guessed at which procedure treats an itch would be making a medical judgement wearing a booking's clothes, and it would be doing it in a confident voice on a recorded call. So the agent is warm and specific about facts, and it hands the judgement to the person qualified to make it.
+The doctor writes rules in her own words: match phrases like *itching in nose*, *blocked nose*, *ringing in ears*, and the service to book for each, with her own sentence explaining it. The agent looks the caller's words up through `suggest_service_for_problem` and reads back what it finds. It is not reasoning about the symptom. It is reading her instruction aloud.
+
+The distinction is the whole point. We rejected the obvious version — let the model infer a service from the symptom — because that is a medical judgement in a booking's clothing, delivered in a confident voice on a recorded call. Instead there is no code path from a symptom to a service except through a mapping a clinician wrote. If she has written nothing for what the caller describes, the agent does not improvise: it says it would rather have someone from the clinic advise them, and hands the call to a person.
+
+So the agent is specific where a clinician has been specific, and defers everywhere else. Matching is deliberately forgiving about grammar and unforgiving about meaning — stopwords dropped and one level of suffix stemming, so *"my nose is blocked"* finds the *blocked nose* rule, while `nose` never collapses into `nosebleed`.
+
+And the routing reaches the guardrail as a structured turn signal rather than as text, so the policy decides over booleans it can be tested against, never over the model's prose.
 
 The same discipline runs through the rest: no inventing a service the clinic does not offer, no claiming a write that did not happen, and no declaring a date unavailable until a tool has actually said so. All of it enforced in three independent layers — the system prompt, a deterministic guardrail policy over extracted turn signals, and the absence of any code path that could do otherwise.
+
+### Handing a live call to a real person
+
+Escalation that only writes a row and promises a callback is a dead end dressed up as a handover. So the doctor can take the call — actually take it, mid-conversation, while the caller is still on the line.
+
+A console at `/live` shows calls happening right now, the ones asking for a person first. It rings when a call needs someone and puts it in the tab title, so the page does not have to be the thing being watched. The doctor presses one button and is on the call:
+
+- **She speaks, in her own voice.** A second WebSocket carries her microphone to the caller as the same audio frame the caller's browser is already playing, and tees the caller's voice back to her. Nothing had to ship on the patient side for this to work.
+- **Or she types**, and Amazon Polly speaks it down the same channel — useful in a room where talking aloud is awkward.
+- **The agent goes fully quiet.** Not just muted: while a human holds the call the model is fed silence instead of the caller's audio, so it stops forming replies at all. Muting only its speaker was our bug, and the caller heard the agent answering questions meant for the doctor.
+- **Nobody picks up? The caller is not left in silence.** At twelve seconds they hear that someone is still being fetched; at forty-five, an honest apology and a choice — leave a number, or ring back during opening hours. Spoken, not printed, because a caller is holding a phone rather than watching a screen.
+- **If her tab dies, the agent takes the call back**, rather than the line going dead.
+
+The written transcript pauses while she is on the call, because a model fed silence transcribes nothing. That gap is marked in the record, and the conversation itself is still on the recording — a gap that explains itself, rather than one that looks like a fault.
 
 ### For the doctor
 
@@ -154,9 +174,9 @@ The part that mattered most for a clinic is the **tool contract**. A Python func
 
 Every tool returns the same shape — success with a value, or failure with a typed error — so the model always receives a discriminated result rather than a stringly-typed maybe. Each tool is closed over its data-layer stores before the model ever sees it, so no store, table name or credential appears in the model-facing schema. The model can call `book_appointment`; it cannot reach the database.
 
-Strands also let us keep the model **swappable and injectable**. The voice adapter builds a real `BidiNovaSonicModel` in production, but accepts an injected model or a fully-formed agent instead — which is exactly how 1,514 tests run without touching Bedrock. The real Strands and Bedrock imports happen lazily inside `start()` rather than at module import, so the rest of the system imports and tests cleanly on a machine with no AWS credentials and no native AWS Common Runtime build.
+Strands also let us keep the model **swappable and injectable**. The voice adapter builds a real `BidiNovaSonicModel` in production, but accepts an injected model or a fully-formed agent instead — which is exactly how 1,672 tests run without touching Bedrock. The real Strands and Bedrock imports happen lazily inside `start()` rather than at module import, so the rest of the system imports and tests cleanly on a machine with no AWS credentials and no native AWS Common Runtime build.
 
-**The tool boundary is the architecture.** Eleven patient-facing tools: `match_offered_service`, `check_availability`, `register_patient`, `lookup_patient`, `list_appointments`, `book_appointment`, `reschedule`, `cancel`, `add_to_waitlist`, `answer_faq`, `flag_for_human`. Two are deliberately absent — `fill_gap_from_waitlist` is doctor-approved only, and `analyze_patterns` belongs to Practice Intelligence.
+**The tool boundary is the architecture.** Twelve patient-facing tools: `match_offered_service`, `suggest_service_for_problem`, `check_availability`, `register_patient`, `lookup_patient`, `list_appointments`, `book_appointment`, `reschedule`, `cancel`, `add_to_waitlist`, `answer_faq`, `flag_for_human`. Two are deliberately absent — `fill_gap_from_waitlist` is doctor-approved only, and `analyze_patterns` belongs to Practice Intelligence.
 
 **Guardrails run on structured signals, not on text.** Each patient turn is deterministically classified — *asks for a human, names a symptom, requests clinical content, expresses distress* — before the model responds, and the policy decides over those booleans rather than over raw text or the model's discretion.
 
@@ -172,7 +192,11 @@ $$
 \text{compute} = \$0.0168/\text{hr} \times 24\,\text{hr} \times 20\,\text{days} \approx \$8.06
 $$
 
-The public deployment serves the caller-facing routes only. The doctor's calendar, patient records and documents are not routed at all, so every dashboard path returns **404 rather than 403** — there is no handler mounted, so there is no role check to bypass.
+The public deployment serves the caller-facing routes, and the doctor's calendar, patient records and documents are not routed at all — every one of those paths returns **404 rather than 403**, because there is no handler mounted and therefore no role check to bypass.
+
+The live console is the one exception, and it had to be. Calls in progress are held **in memory, per process**: a caller on the public URL is registered inside that container, so a console running on a laptop sees an empty list however much it is permitted to see. The call is not there to be taken. To answer a real call, the console has to be served by the process holding it.
+
+So it is published behind a shared secret — opt-in via `CLINIC_CONSOLE_TOKEN`, compared with `hmac.compare_digest`, absent by default — and it publishes the live console *only*. Stored records, the calendar, documents, onboarding and the JSON tool surface stay unrouted **even with a valid token**. The secret buys calls in progress, never the clinic's history. Verified through CloudFront rather than just against the instance: console 200 with the token, 403 without, the doctor's audio socket upgrading to 101 only with it, and every record path still 404.
 
 ## Challenges we ran into
 
@@ -250,7 +274,9 @@ A test that passes while proving nothing is worse than no test, because it buys 
 
 **It is live, and anyone can call it.** Not a video, not a localhost demo — a public HTTPS URL with a real certificate, real Nova Sonic audio and real DynamoDB writes. Verified end to end: `/ping`, the page, the assets, a genuine `wss://` handshake returning **101 Switching Protocols** through CloudFront, and a `session_started` frame that only arrives *after* the Bedrock stream opens.
 
-**1,514 tests. `mypy --strict` clean across 104 source files.** All offline, no credentials needed — including property-based tests with Hypothesis and latency tests asserting response start $\le 1.5$ s and barge-in stop $\le 500$ ms.
+**1,672 tests. `mypy --strict` clean across 110 source files.** All offline, no credentials needed — including property-based tests with Hypothesis and latency tests asserting response start $\le 1.5$ s and barge-in stop $\le 500$ ms.
+
+**Fifty simultaneous callers, zero failures.** Every one got its own Nova Sonic session and its own distinct session id, with no Bedrock throttling: 3, 5, 10 and 50 concurrent calls against the live public URL. Greeting latency held near half a second at five callers and about four seconds at fifty — which we traced to thread-pool queueing on two vCPUs rather than anything in the model path.
 
 **The dashboard is protected by not existing.** Access is decided by a `?role=` query parameter that the code itself documents as *not a security control*. On a public URL, anyone with the link would otherwise be the doctor, reading patient names, mobiles and blood groups. So the public build does not route those pages at all. **Not routing is a stronger guarantee than guarding**, and it is less code.
 
@@ -280,7 +306,20 @@ At $n = 1000$ that is already $\approx 52\%$, and real initials cluster far from
 
 ## What's next for Clinic Front Desk — the voice agent always on the line
 
-**Amazon Connect, to carry the handover onto a real phone line.** Today, when a caller asks for a person, becomes distressed, or raises something the doctor should answer, `flag_for_human` records the escalation with its reason, the transcript so far and the signals that triggered it, and it appears on the doctor's dashboard within five seconds. The next step is delivering it as a call, so the caller reaches a person on the spot instead of waiting for a callback.
+**Amazon Connect, to carry the handover onto a real phone line.** The handover itself is done — a caller who asks for a person gets one, live, in the doctor's own voice, as described above. What Connect adds is the *telephone*: today both ends are browser tabs, and a clinic's front desk belongs on the clinic's actual number.
+
+The integration is written, not merely planned: `flag_for_human` has a transport seam, the Connect client is implemented behind it, and 23 tests cover it. It activates on two environment variables, `CLINIC_CONNECT_INSTANCE_ID` and `CLINIC_CONNECT_FLOW_ID`.
+
+It is not switched on because it cannot be, in this account:
+
+```
+InvalidRequestException: You're signed in with an AWS account that was provided
+by AISPL. These accounts cannot create Amazon Connect instances.
+```
+
+We tested a valid alias in all nine Connect regions and got the same refusal in each; `ap-south-1` does not offer the service at all. AISPL is Amazon's Indian reseller, and the restriction is account-level and documented — not permissions, not a quota, nothing a support ticket moves. The only route is an AWS account with non-Indian billing.
+
+That blockage is what produced the browser-based live takeover, and we would keep it either way: it works without a telephony provider at all, which matters for a clinic that has not bought one yet.
 
 **Why Connect is the right instrument for this.** A handover is a telephony problem, and telephony is the part nobody should build themselves. Amazon Connect is a managed contact centre: it provides the phone number, the call routing, the hold behaviour, the queueing when the doctor is already on a call, and the agent-side interface — none of which we would want to assemble from SIP trunks and hope. What it exposes to us is an ordinary AWS API surface, scoped with ordinary IAM, so the agent asks for a call the same way it asks for anything else.
 

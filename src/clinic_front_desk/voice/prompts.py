@@ -8,9 +8,10 @@ the design's defense-in-depth guardrail ("Guardrail enforcement"):
   instructs routing solely by a service the patient explicitly names
   (Req 10.1, 10.6).
 - **Tool layer** (:mod:`clinic_front_desk.voice.guardrails`): there is no
-  symptom→service mapping code path; the orchestrator must escalate via
-  ``flag_for_human`` when it cannot obtain a patient-named offered service
-  (Req 10.3, 10.4).
+  *inferred* symptom→service mapping code path. A service is reached either by
+  the patient naming one (exact match) or by relaying a mapping the doctor
+  authored, via ``suggest_service_for_problem``. When neither applies the
+  orchestrator must escalate via ``flag_for_human`` (Req 10.3, 10.4).
 
 The prompt is a plain string constant so it can be attached to the Strands
 ``BidiAgent`` (task 9.2) and asserted against in tests without pulling in the

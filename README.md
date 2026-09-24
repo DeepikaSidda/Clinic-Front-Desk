@@ -30,7 +30,7 @@ it does not guess. It declines and escalates.
 | **Storage** | Amazon DynamoDB, single table, 4 GSIs |
 | **Documents** | Amazon S3 + Bedrock embeddings, doctor-uploaded PDFs |
 | **Hosting** | CloudFront + EC2 `t4g.small` (public demo) · Bedrock AgentCore Runtime (container) |
-| **Quality** | **1,514 tests**, `mypy --strict` clean across **104** source files |
+| **Quality** | **1,672 tests**, `mypy --strict` clean across **110** source files |
 | **Language** | Python 3.12 |
 
 
@@ -197,11 +197,40 @@ If nothing suitable is free, it records who wanted what and when. That is not a 
 the second agent later spots an open gap and proposes filling it from the waitlist, and the
 doctor approves with one click.
 
-### Hand over to a human
+### Route a described problem using the doctor's own rules
+
+*"I'm facing severe itching inside my nose — which service should I book?"*
+
+Callers do not know that what they need is called an ENT Consultation, and they should not
+have to. So the agent routes described problems to services — reading **rules the doctor wrote
+herself**, stored in the table alongside everything else:
+
+| The doctor writes | The caller hears |
+| --- | --- |
+| phrases: `itching in nose`, `blocked nose` → **ENT Consultation**, with her own sentence explaining why | that sentence, then an offer to book it |
+| nothing matching what they described | that the clinic would rather advise them directly — and the call is handed to a person |
+
+The agent is not reasoning about the symptom; it is reading a clinician's instruction aloud.
+We rejected letting the model infer a service, because that is a medical judgement in a
+booking's clothing, delivered confidently on a recorded line.
+
+Matching is forgiving about grammar and strict about meaning: stopwords dropped, one level of
+suffix stemming, all phrase words required. So *"my nose is blocked"* finds the *blocked nose*
+rule, while `nose` never collapses into `nosebleed`. The result reaches the guardrail as a
+**structured turn signal**, so the policy decides over testable booleans rather than prose.
+
+Manage the rules with `scripts/set_symptom_routes.py`; check them with
+`scripts/check_symptom_routing.py`.
+
+### Hand over to a human — live, in the doctor's voice
 
 If a caller asks for a person, becomes distressed, or asks anything clinical, it stops and
 hands over — recording the reason, the transcript so far, and the signals that triggered it.
 Distress alone *offers* a handover rather than forcing one; a following "yes" accepts it.
+
+And the handover is **delivered, not just filed**. The doctor opens `/live?role=doctor`, which
+rings when a call needs someone, and takes the call with her own microphone while the caller is
+still on the line. See [Human handover](#human-handover-and-amazon-connect).
 
 
 ---
@@ -215,10 +244,13 @@ turn signals, and the absence of any code path that could do the forbidden thing
 **No clinical advice, triage, or diagnosis.** *"My ear hurts, what's wrong with me?"* gets a
 refusal and an offer of a human.
 
-**No symptom-to-service inference.** A caller describing an itch inside the nose is not
-routed to an ENT consultation, because deciding which service treats a symptom is a medical
-judgement wearing a booking's clothes. There is **no symptom→service mapping code path at
-all** — the guardrail cannot be talked around because the capability does not exist.
+**No symptom-to-service inference of its own.** The agent *does* route described problems to
+services — but only by reading rules **the doctor wrote herself**, never by reasoning from the
+symptom. There is no code path from a symptom to a service except through a clinician-authored
+mapping, so the guardrail cannot be talked around: the capability to guess does not exist. If
+she has written nothing for what the caller describes, the agent says it would rather have
+someone from the clinic advise them, and hands the call over. See
+[Symptom routing](#route-a-described-problem-using-the-doctors-own-rules).
 
 **No inventing services.** Asked about a treatment the clinic does not offer, it says so
 rather than improvising something plausible.
@@ -344,12 +376,13 @@ AWS and no cost, and what stops the DynamoDB implementation drifting from the fa
 
 ## The tool suite
 
-Eleven patient-facing tools. The model chooses *which* to call; it never gets to decide what
+Twelve patient-facing tools. The model chooses *which* to call; it never gets to decide what
 is true.
 
 | Tool | Purpose |
 | --- | --- |
 | `match_offered_service` | Map a caller-named service to one the clinic offers. Exact match only |
+| `suggest_service_for_problem` | Route a *described* problem using the doctor's own written rules. Never infers |
 | `check_availability` | Open slots for a service — dated, at most three, closed days flagged |
 | `register_patient` | Create or amend a patient record; returns exactly what it wrote |
 | `lookup_patient` | Find by name + mobile, or by five-character code |
@@ -438,19 +471,53 @@ stops. `flag_for_human` records the reason, the transcript so far, and the signa
 triggered it, and the escalation appears in the doctor's call activity log within five
 seconds.
 
-### Current state — stated plainly
+### Current state — the handover is delivered, live
 
-**The handover is recorded, not delivered.** `flag_for_human` writes an `Escalation` row and
-the dashboard shows it. Nothing pages anyone, and no live call is transferred — so a caller
-told "someone will follow up" depends on the doctor reading the dashboard.
+A caller who asks for a person gets one, while still on the line.
 
-This is the largest gap between what the agent says and what the system does, and it is here
-rather than left for a reviewer to discover.
+`/live?role=doctor` lists calls in progress, the ones needing someone first. It **rings** and
+shows a count in the tab title, so the page does not have to be the thing being watched. One
+button puts the doctor on the call:
 
-### The designed integration
+| Control | What happens |
+| --- | --- |
+| **🎤 Take over & talk** | Her microphone goes to the caller, and the caller's voice comes back to her — a real two-way conversation |
+| **Say** | She types; Amazon Polly speaks it down the caller's existing audio channel |
+| **Hand back** | The agent resumes the call |
 
-Amazon Connect is the intended transport, and the seam already exists: escalation is a
-single tool with a typed result, not logic smeared through the prompt. Wiring it means:
+**The agent stops listening, not just speaking.** While a human holds the call the model is
+fed silence in place of the caller's audio, so it forms no replies at all. Muting only its
+output was a real bug: the agent kept answering questions meant for the doctor and printed
+"interrupted — playback stopped" every time the caller spoke to her.
+
+**Nobody available? The caller is not left in silence.** At 12 seconds they hear that someone
+is still being fetched; at 45, an honest apology and a choice — leave a number, or call back
+during opening hours. Spoken aloud, because a caller is holding a phone, not watching a
+screen. Both intervals are configurable.
+
+**If the doctor's tab dies, the call goes back to the agent** rather than to dead air.
+
+The written transcript pauses while she is on the call — a model fed silence transcribes
+nothing — so the gap is **marked** in the record, with the conversation itself preserved on
+the call recording.
+
+### Amazon Connect — implemented, blocked by the account
+
+Connect would put both ends on a real phone number instead of browser tabs. The code is
+written and covered by 23 tests, activating on `CLINIC_CONNECT_INSTANCE_ID` and
+`CLINIC_CONNECT_FLOW_ID`. It cannot be enabled in this account:
+
+```
+InvalidRequestException: You're signed in with an AWS account that was provided
+by AISPL. These accounts cannot create Amazon Connect instances.
+```
+
+Tested with a valid alias in all nine Connect regions — the same refusal each time;
+`ap-south-1` does not offer the service at all. AISPL is Amazon's Indian reseller and the
+restriction is account-level and documented: not permissions, not a quota, not something a
+support ticket changes. The only route is an AWS account with non-Indian billing.
+
+The design, for whoever has such an account:
 
 1. **A Connect instance with a contact flow** holding a clinic queue, with the doctor's
    mobile as an agent endpoint.
@@ -601,7 +668,7 @@ audio either way. `--debug` prints every server message.
 | "My code is S-I-3-0-7" | Resolved to the patient record |
 | "Do you treat tinnitus?" | Not offered — says so, no guessing |
 | "My ear hurts, what's wrong with me?" | Declines, escalates, call ends `escalated` |
-| "My ear hurts" (symptom only) | Never infers a service, escalates |
+| "My ear hurts" (symptom only) | Routes via the doctor's own rules, or hands over if she wrote none |
 | "Can I speak to a human?" | Escalates immediately |
 | "This is unacceptable" | *Offers* a handover; a following "yes" accepts it |
 
@@ -643,7 +710,7 @@ means no patient audio is captured.
 
 ## Testing
 
-**1,514 tests. `mypy --strict` clean across 104 source files.** The whole suite runs
+**1,672 tests. `mypy --strict` clean across 110 source files.** The whole suite runs
 offline against in-memory stores and a fake voice stream — no credentials, no cost.
 
 ```powershell
@@ -725,6 +792,23 @@ execution role and the scheduled Practice Intelligence run via EventBridge.
 **The dashboard is not published.** The hosted demo runs with `CLINIC_VOICE_ONLY=1`, mounting
 only `/ping`, `/voice`, `/ws` and `/static/*`. Every dashboard route returns **404 — not
 403**, because no handler is mounted, so there is no role check to get past.
+
+**The live console is the one publishable exception, and it is opt-in.** Calls in progress are
+held in memory *per process*, so a caller on the public URL is registered inside that
+container and a console running anywhere else sees an empty list no matter what it is allowed
+to see — the call is not there to take. Setting `CLINIC_CONSOLE_TOKEN` publishes the live
+console on the public host, gated on that shared secret rather than on `?role=`, compared with
+`hmac.compare_digest`. Unset by default, and tokens shorter than 24 characters are refused at
+startup rather than quietly accepted.
+
+It publishes the **live console only**. Stored patient records, the calendar, documents,
+onboarding and the `/invocations` tool surface stay unrouted *even with a valid token* — the
+secret buys calls in progress, never the clinic's history. The doctor's audio socket honours
+it too, and refuses the WebSocket handshake before accepting rather than after.
+
+Worth stating plainly: the token travels in the URL, so it lands in browser history and
+anyone it is forwarded to keeps access until it is rotated. `python deploy/publish_console.py
+--revoke` returns the host to voice-only.
 
 That matters because dashboard access is decided by a `?role=` query parameter, documented in
 the code as **not a security control**. On a public URL anyone with the link would otherwise
