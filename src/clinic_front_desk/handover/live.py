@@ -48,6 +48,27 @@ POLLY_SAMPLE_RATE = 16_000
 
 #: An Indian-English neural voice, so a human stepping in does not sound like a
 #: different clinic to the caller mid-call.
+def default_region() -> str:
+    """The region for Polly, resolved the way the rest of the app resolves it.
+
+    Earned its own function. The Polly client was built with ``region_name=None`` and
+    no region was ever passed in, so botocore fell back to ``AWS_DEFAULT_REGION`` —
+    which the deployment does not set; its systemd unit sets ``AWS_REGION``. Every
+    synthesis on the instance failed with "You must specify a region", and because
+    synthesis errors are caught so a dead voice can never drop a call, the only
+    symptom was a caller hearing nothing. It worked in every local test because a
+    developer machine has a region in ``~/.aws/config``, which the instance has not.
+
+    Checked in the same order as ``runtime_config_from_env`` so one deployment cannot
+    have the data layer in one region and the clinic's voice in another.
+    """
+    for name in ("CLINIC_REGION", "AWS_REGION", "AWS_DEFAULT_REGION"):
+        value = (os.environ.get(name) or "").strip()
+        if value:
+            return value
+    return "us-east-1"
+
+
 DEFAULT_VOICE_ID = "Kajal"
 DEFAULT_ENGINE = "neural"
 
@@ -293,7 +314,10 @@ class LiveHandoverService:
             # Lazy so importing this costs nothing and needs no credentials.
             import boto3  # type: ignore[import-untyped]
 
-            self._polly = boto3.client("polly", region_name=self._region)
+            # Never None: an unresolved region is a silent loss of the clinic's voice.
+            self._polly = boto3.client(
+                "polly", region_name=self._region or default_region()
+            )
         return self._polly
 
     async def take_over(self, session_id: str) -> bool:
@@ -547,4 +571,5 @@ __all__ = [
     "LiveCall",
     "LiveCallRegistry",
     "LiveHandoverService",
+    "default_region",
 ]
