@@ -190,12 +190,18 @@ ring the clinic during opening hours" is finally an instruction someone can foll
 
 *"How much is a consultation?"* → `An ENT Consultation costs 500 rupees.`
 
-**Rupees, written as a word.** Prices used to render as `$500.00`, which for a Tirupati
-clinic charging rupees quotes a caller roughly eighty times the real fee, in a confident
-voice, on a recorded line — the same class of harm as inventing availability. The currency
-is a word rather than `₹` because this is *spoken*: a speech model handed the symbol may
-read its name or skip it. Whole amounts drop the `.00`, since a receptionist says "five
-hundred rupees", not "five hundred point zero zero".
+**The clinic charges Indian rupees (₹500 for a consultation), and the agent says so.**
+The currency is spoken as a **word rather than the `₹` symbol**, because this is heard and
+not read: a speech model handed `₹` may read the symbol's name, skip it, or guess. Whole
+amounts drop the `.00` too, since a receptionist says "five hundred rupees" while "five
+hundred point zero zero" is what a computer says.
+
+Worth recording why: the formatter was originally written as `f"${price:.2f}"`, so it would
+have told a caller *"five hundred dollars"* — roughly eighty times the real fee, in a
+confident voice, on a recorded line. That is the same class of harm as inventing
+availability, and it was inaudible until a real fee was configured, because the formatter
+had never once run on a number. The currency now lives in a single constant, and the
+verification script refuses to pass if an answer mentions dollars at all.
 
 Unconfigured stays unconfigured: no number and no fee yields "reception will confirm",
 never a guess. Set both with `scripts/set_contact_and_fees.py`; the agent reads

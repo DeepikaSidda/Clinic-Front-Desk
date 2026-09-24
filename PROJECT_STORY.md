@@ -300,13 +300,24 @@ That fix had a consequence: unfinalised turns can arrive more than once as they 
 
 This one hid better than any other bug in the project. Nothing errored, the transcript existed, and it read like a quiet call. You only notice if you already know what the agent said.
 
-### Prices were quoted in dollars
+### The clinic charges rupees, and the code was formatting dollars
 
-`$500.00`, for a clinic in Tirupati charging rupees. A caller asking the consultation fee would have been told a number roughly eighty times the real one, in a confident voice, on a recorded line.
+**The agent quotes rupees. It always should have, and now it does — this is the story of a formatting bug we found and fixed.**
 
-It is the same failure as inventing availability — a commitment stated as the clinic's word — and it had been sitting in the code the whole time, because no price had ever been configured, so the format had never been spoken aloud. The moment we set a real fee it became audible.
+The clinic is in Tirupati and charges in **Indian rupees**. A consultation is **₹500**. But the price formatter had been written as `f"${price:.2f}"`, so the one thing a caller must never be told wrongly — money — would have come out as *"five hundred dollars"*: roughly eighty times the real fee, in a confident voice, on a recorded line.
 
-Fixed as a word rather than a symbol: `500 rupees`, not `₹500.00`. A speech model handed `₹` may read the symbol's name or skip it, and whole amounts drop the decimals because "five hundred point zero zero rupees" is not how anyone says a price.
+It is the same failure as inventing availability, a commitment stated as the clinic's word. And it had been sitting in the code from the beginning, completely inaudible, because no price had ever been configured — the formatter had never once run on a real number. The moment we set an actual fee, it spoke.
+
+The fix is a **word rather than a symbol**: the agent says `500 rupees`, not `₹500.00`. Two reasons, both because this is heard and not read. A speech model handed `₹` may read the symbol's name, skip it, or guess; and whole amounts drop their decimals, because "five hundred rupees" is what a receptionist says while "five hundred point zero zero" is what a computer says.
+
+Verified on a real call to the deployed agent:
+
+```
+patient: how much does an ent consultation cost?
+agent:   According to the clinic's information, an ENT Consultation costs 500 rupees.
+```
+
+The currency lives in one constant, so a clinic billing in something else is a one-line change rather than a hunt through scattered symbols. And the verification refuses to pass if the answer mentions dollars at all.
 
 ### We had to fix our own verification twice
 
