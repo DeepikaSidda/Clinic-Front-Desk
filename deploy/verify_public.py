@@ -23,6 +23,7 @@ import argparse
 import base64
 import json
 import os
+import pathlib
 import socket
 import ssl
 import time
@@ -40,19 +41,34 @@ BASE = f"https://{HOST}"
 #: earlier version of this list checked /patients, /calendar, /day and /metrics,
 #: none of which are routes in *either* mode — so it reported four passes while
 #: leaving /slots, /onboarding and the whole /dashboard/* tree untested.
+#: Stored records. These must be **unrouted** — 404, no handler — whatever else is
+#: published, and whatever token is held.
 PRIVATE = (
     "/",
     "/onboarding",
     "/slots",
+    "/slots/patient/any",
     "/documents",
     "/dashboard/schedule",
     "/dashboard/activity",
     "/dashboard/metrics",
     "/dashboard/decisions",
     "/dashboard/events",
-    # The live-takeover console and its routes. Worse to expose than the rest of
-    # the dashboard: these carry speech from a call still in progress, and they let
-    # whoever holds the URL talk to a caller as the clinic.
+    "/dashboard/calls/any",
+)
+
+#: The live-console paths, which are a different rule from the records above and used
+#: to be lumped in with them. They carry speech from a call still in progress and let
+#: whoever reaches them talk to a caller as the clinic — so the requirement is that an
+#: unauthorised request is **refused**, not that the route is absent.
+#:
+#: 404 and 403 are both passes here, and the distinction is the deployment's choice:
+#: 404 with no ``CLINIC_CONSOLE_TOKEN`` set (not mounted at all), 403 once a token
+#: publishes the console (mounted, secret required). Treating 403 as a failure — which
+#: this script did after the console shipped — reported "exposed /live" about a path
+#: that was correctly refusing. A false alarm about live patient audio is worse than
+#: no check, because the next real one gets ignored.
+CONSOLE = (
     "/live",
     "/dashboard/live",
     "/dashboard/live/any/transcript",
@@ -66,6 +82,23 @@ PRIVATE = (
 #: Asking as the doctor, because that is what a judge with the link would do.
 #: The role is a query parameter, so there is nothing stopping them.
 AS_DOCTOR = "?role=doctor"
+
+
+def _console_token() -> str:
+    """The live-console secret, if this machine has one.
+
+    Read from the same gitignored file ``deploy/publish_console.py`` publishes from,
+    so the check matches what was actually deployed. Absent is normal and simply
+    means the console-with-a-token checks are skipped.
+    """
+    path = pathlib.Path(".secrets/console_token.txt")
+    try:
+        return path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+
+
+TOKEN = _console_token()
 
 
 def get(path: str, timeout: int = 15) -> tuple[int | str, bytes]:
@@ -189,17 +222,53 @@ def main() -> None:
     if not upgraded:
         failures.append("/ws")
 
-    print("DASHBOARD MUST NOT BE PUBLIC")
+    print("PATIENT RECORDS MUST NOT BE ROUTED AT ALL")
     for path in PRIVATE:
         # Ask as the doctor, since ?role= is not a security control and a judge
-        # with the link could do exactly this.
-        code, body = get(path + AS_DOCTOR)
-        # 404 is the intended answer: in voice-only mode there is no handler at
-        # all, so there is no role check to get past.
+        # with the link could do exactly this. Also send a token if one is
+        # configured: the secret publishes the live console and must buy nothing
+        # else, so these have to stay 404 even for whoever holds it.
+        query = AS_DOCTOR + (f"&k={TOKEN}" if TOKEN else "")
+        code, body = get(path + query)
+        # 404 is the intended answer: there is no handler at all, so there is no
+        # role check to get past and no token that helps.
         ok = code in (404, 405)
+        label = f"{path}{AS_DOCTOR}" + ("&k=***" if TOKEN else "")
+        print(f"  {'ok  ' if ok else 'FAIL'} {label} -> {code}")
+        if not ok:
+            failures.append(f"exposed {path}")
+
+    print("LIVE CONSOLE MUST REFUSE AN UNAUTHORISED REQUEST")
+    for path in CONSOLE:
+        code, body = get(path + AS_DOCTOR)
+        # 404 = not mounted (no token configured). 403 = mounted, secret required.
+        ok = code in (403, 404, 405)
         print(f"  {'ok  ' if ok else 'FAIL'} {path}{AS_DOCTOR} -> {code}")
         if not ok:
             failures.append(f"exposed {path}")
+        if TOKEN:
+            code, _ = get(f"{path}{AS_DOCTOR}&k=wrong-token-that-is-long-enough-xx")
+            ok = code in (403, 404, 405)
+            print(f"  {'ok  ' if ok else 'FAIL'} {path} with a wrong token -> {code}")
+            if not ok:
+                failures.append(f"wrong token accepted at {path}")
+
+    if TOKEN:
+        print("LIVE CONSOLE MUST WORK FOR WHOEVER HOLDS THE SECRET")
+        # Without this the checks above would pass with the console simply broken,
+        # and the doctor would find out when a call came in.
+        for path in ("/live", "/dashboard/live"):
+            code, _ = get(f"{path}{AS_DOCTOR}&k={TOKEN}")
+            ok = code == 200
+            print(f"  {'ok  ' if ok else 'FAIL'} {path}{AS_DOCTOR}&k=*** -> {code}")
+            if not ok:
+                failures.append(f"console broken at {path}")
+        upgraded, detail = websocket_upgrade(
+            f"/dashboard/live/any/talk{AS_DOCTOR}&k={TOKEN}"
+        )
+        print(f"  {'ok  ' if upgraded else 'FAIL'} doctor talk socket -> {detail}")
+        if not upgraded:
+            failures.append("doctor talk socket refuses a valid token")
 
     # The doctor's talk socket is the worst thing on the route table to leave open:
     # it streams a live caller's voice out and lets whoever connects speak to them as
