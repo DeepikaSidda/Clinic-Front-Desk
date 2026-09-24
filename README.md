@@ -30,7 +30,7 @@ it does not guess. It declines and escalates.
 | **Storage** | Amazon DynamoDB, single table, 4 GSIs |
 | **Documents** | Amazon S3 + Bedrock embeddings, doctor-uploaded PDFs |
 | **Hosting** | CloudFront + EC2 `t4g.small` (public demo) · Bedrock AgentCore Runtime (container) |
-| **Quality** | **1,672 tests**, `mypy --strict` clean across **110** source files |
+| **Quality** | **1,758 tests**, `mypy --strict` clean across **112** source files |
 | **Language** | Python 3.12 |
 
 
@@ -175,6 +175,31 @@ Two rules on writes:
   overwritten**, since the person calling may not be the person in the record.
 - The tool returns exactly which fields it wrote, which were already on file, and which it
   rejected. **The agent may only confirm what is in `recorded`.**
+
+### Give the clinic's own number, and quote fees in the right currency
+
+Two values the caller acts on as the clinic's word, so both are **structured
+configuration** and neither is ever read out of an uploaded document. A number in a PDF
+could be a fax line, a supplier's, or a previous practice's — and a caller given the wrong
+one rings it, reaches a stranger, and still has not reached the clinic. A fee could be
+last year's.
+
+*"What's your number?"* → `You can reach the clinic on 1234567890.` The agent is also told
+this is the only number it may say, and the nobody-picked-up line names it, so "you can
+ring the clinic during opening hours" is finally an instruction someone can follow.
+
+*"How much is a consultation?"* → `An ENT Consultation costs 500 rupees.`
+
+**Rupees, written as a word.** Prices used to render as `$500.00`, which for a Tirupati
+clinic charging rupees quotes a caller roughly eighty times the real fee, in a confident
+voice, on a recorded line — the same class of harm as inventing availability. The currency
+is a word rather than `₹` because this is *spoken*: a speech model handed the symbol may
+read its name or skip it. Whole amounts drop the `.00`, since a receptionist says "five
+hundred rupees", not "five hundred point zero zero".
+
+Unconfigured stays unconfigured: no number and no fee yields "reception will confirm",
+never a guess. Set both with `scripts/set_contact_and_fees.py`; the agent reads
+configuration at the start of every call, so no restart is needed.
 
 ### Answer questions about the clinic
 
@@ -391,7 +416,7 @@ is true.
 | `reschedule` | Move an appointment, releasing the old slot |
 | `cancel` | Cancel and release, after confirmation |
 | `add_to_waitlist` | Record demand when nothing suitable is free |
-| `answer_faq` | Hours, address, services, pricing — from config and uploaded documents |
+| `answer_faq` | Hours, address, services, pricing, the clinic's phone number — from config and uploaded documents |
 | `flag_for_human` | Record a handover with its reason and context |
 
 Two tools are deliberately **absent** from the patient-facing set: `fill_gap_from_waitlist`
@@ -497,9 +522,33 @@ screen. Both intervals are configurable.
 
 **If the doctor's tab dies, the call goes back to the agent** rather than to dead air.
 
-The written transcript pauses while she is on the call — a model fed silence transcribes
-nothing — so the gap is **marked** in the record, with the conversation itself preserved on
-the call recording.
+**The whole conversation is stored, both voices.** The recording is stereo by design —
+caller on the left channel, clinic on the right — so her voice and the caller's are
+separable rather than mixed. After the call, Amazon Transcribe reads that recording with
+channel identification and appends a labelled text transcript to the call record:
+
+```
+--- transcribed from the call recording (both sides, after the call) ---
+[00:02] patient: My ear has been hurting since Monday
+[00:06] clinic: I can see you tomorrow morning at ten o'clock
+```
+
+Batch rather than streaming, for a specific reason: the streaming SDK pins
+`awscrt~=0.26.1` while Nova Sonic's bidirectional stream runs on `0.36.2`, and
+downgrading the transport the whole voice agent depends on to add a transcript is the
+wrong trade. Batch needs only `boto3`, which is already a dependency, so **nothing leaves
+AWS** and nothing new was installed. It runs only for calls a human took over — every
+other call already has a transcript, so transcribing them would pay Transcribe to
+re-derive one.
+
+It is started after the call record is already persisted and never awaited, so a slow job
+cannot delay a hang-up, and every failure path returns nothing rather than raising: a
+missing transcript is a gap in the record, while an exception here would damage the call
+record itself.
+
+The **audio is the record of authority** and the text is a searchable aid. Recognition is
+not perfect — one verification run turned "I can see you tomorrow morning at ten o'clock"
+into "I can see it at 10 o'clock" — so the exact conversation is always the WAV.
 
 ### Amazon Connect — implemented, blocked by the account
 
@@ -715,7 +764,7 @@ means no patient audio is captured.
 
 ## Testing
 
-**1,672 tests. `mypy --strict` clean across 110 source files.** The whole suite runs
+**1,758 tests. `mypy --strict` clean across 112 source files.** The whole suite runs
 offline against in-memory stores and a fake voice stream — no credentials, no cost.
 
 ```powershell

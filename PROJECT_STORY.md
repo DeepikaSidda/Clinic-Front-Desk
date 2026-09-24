@@ -105,7 +105,25 @@ A console at `/live` shows calls happening right now, the ones asking for a pers
 - **Nobody picks up? The caller is not left in silence.** At twelve seconds they hear that someone is still being fetched; at forty-five, an honest apology and a choice — leave a number, or ring back during opening hours. Spoken, not printed, because a caller is holding a phone rather than watching a screen.
 - **If her tab dies, the agent takes the call back**, rather than the line going dead.
 
-The written transcript pauses while she is on the call, because a model fed silence transcribes nothing. That gap is marked in the record, and the conversation itself is still on the recording — a gap that explains itself, rather than one that looks like a fault.
+### Writing down what the human and the caller said
+
+The written transcript pauses while she is on the call, because a model fed silence transcribes nothing. So the conversation is recovered from the audio afterwards.
+
+The recording is stereo by design — caller left, clinic right — which turns out to be the thing that makes this possible. **Amazon Transcribe** reads the finished WAV with channel identification, so it labels who spoke rather than guessing from voices, and the result is appended to the call record:
+
+```
+--- transcribed from the call recording (both sides, after the call) ---
+[00:02] patient: My ear has been hurting since Monday
+[00:06] clinic: I can see you tomorrow morning at ten o'clock
+```
+
+**Batch, not streaming, and the reason is a dependency conflict worth naming.** The official streaming SDK, `amazon-transcribe`, pins `awscrt~=0.26.1`. Nova Sonic's bidirectional stream runs on `0.36.2`. Installing it silently downgraded the transport the entire voice agent depends on by ten minor versions — to add a transcript. That is the wrong trade, so we backed it out. Batch transcription needs only `boto3`, which was already a dependency: no new package, and nothing leaves AWS.
+
+We considered the browser's own Web Speech API, which would have been live and free. We rejected it because Chrome's implementation ships audio to a third party, and a doctor discussing a patient is not a conversation to hand to someone else.
+
+It runs only for calls a human took over, which needed a flag that survives the handback — every other call already has a transcript, and transcribing those would pay to re-derive one. It starts after the call record is persisted, is never awaited so it cannot delay a hang-up, and returns nothing on every failure path: a missing transcript is a gap in the record, while an exception there would damage the record itself.
+
+One honest limit: the **audio is authoritative** and the text is a searchable aid. A verification run turned *"I can see you tomorrow morning at ten o'clock"* into *"I can see it at 10 o'clock"*. The words are captured; the exactness lives on the WAV.
 
 ### For the doctor
 
@@ -174,7 +192,7 @@ The part that mattered most for a clinic is the **tool contract**. A Python func
 
 Every tool returns the same shape — success with a value, or failure with a typed error — so the model always receives a discriminated result rather than a stringly-typed maybe. Each tool is closed over its data-layer stores before the model ever sees it, so no store, table name or credential appears in the model-facing schema. The model can call `book_appointment`; it cannot reach the database.
 
-Strands also let us keep the model **swappable and injectable**. The voice adapter builds a real `BidiNovaSonicModel` in production, but accepts an injected model or a fully-formed agent instead — which is exactly how 1,672 tests run without touching Bedrock. The real Strands and Bedrock imports happen lazily inside `start()` rather than at module import, so the rest of the system imports and tests cleanly on a machine with no AWS credentials and no native AWS Common Runtime build.
+Strands also let us keep the model **swappable and injectable**. The voice adapter builds a real `BidiNovaSonicModel` in production, but accepts an injected model or a fully-formed agent instead — which is exactly how 1,758 tests run without touching Bedrock. The real Strands and Bedrock imports happen lazily inside `start()` rather than at module import, so the rest of the system imports and tests cleanly on a machine with no AWS credentials and no native AWS Common Runtime build.
 
 **The tool boundary is the architecture.** Twelve patient-facing tools: `match_offered_service`, `suggest_service_for_problem`, `check_availability`, `register_patient`, `lookup_patient`, `list_appointments`, `book_appointment`, `reschedule`, `cancel`, `add_to_waitlist`, `answer_faq`, `flag_for_human`. Two are deliberately absent — `fill_gap_from_waitlist` is doctor-approved only, and `analyze_patterns` belongs to Practice Intelligence.
 
@@ -262,6 +280,34 @@ Amazon Linux 2023 ships without cronie, so `/etc/cron.d` does not exist. Under `
 
 Then the call itself failed twice more on things only a real connection reveals: a missing `dynamodb:Scan` grant, a missing `s3:GetObject` on the documents prefix, and finally a missing `[voice]` extra — which meant the page loaded, the WebSocket upgraded, and the call died the instant Nova Sonic was constructed.
 
+### Every transcript held only half the conversation
+
+The doctor reads the transcript to see what happened on a call. It showed her the questions and none of the answers — the agent's side was simply absent, on every call ever made.
+
+The first guess was case sensitivity: Nova Sonic labels roles in upper case, and the code compared against `"assistant"`. Plausible, wrong. Fixed, deployed, still one-sided.
+
+So we stopped reasoning about it and logged what the model actually emits:
+
+```
+role='user'      is_final=True
+role='assistant' is_final=False
+role='assistant' is_final=False
+```
+
+**Nova Sonic never marks its own output final.** The rule "only record finalised transcripts" is correct for the caller — their recognition changes word by word as they speak, and recording it would fill the record with half-heard guesses. Applied evenly, it deleted the agent's entire half. Finality is now required of the caller and not of the agent.
+
+That fix had a consequence: unfinalised turns can arrive more than once as they are produced, so a turn extending the previous one replaces it and an exact repeat is dropped. Scoped to the agent only — and that scoping came from a test failing. Our first version collapsed 4,000 identical caller turns into one, which is when we realised a caller saying "yes" twice is a *fact about the call*, not noise to merge away.
+
+This one hid better than any other bug in the project. Nothing errored, the transcript existed, and it read like a quiet call. You only notice if you already know what the agent said.
+
+### Prices were quoted in dollars
+
+`$500.00`, for a clinic in Tirupati charging rupees. A caller asking the consultation fee would have been told a number roughly eighty times the real one, in a confident voice, on a recorded line.
+
+It is the same failure as inventing availability — a commitment stated as the clinic's word — and it had been sitting in the code the whole time, because no price had ever been configured, so the format had never been spoken aloud. The moment we set a real fee it became audible.
+
+Fixed as a word rather than a symbol: `500 rupees`, not `₹500.00`. A speech model handed `₹` may read the symbol's name or skip it, and whole amounts drop the decimals because "five hundred point zero zero rupees" is not how anyone says a price.
+
 ### We had to fix our own verification twice
 
 This one stung. Our deployment check reported PASS on a set of dashboard routes returning 404 — but four of those routes **did not exist in either mode**. It was asserting that nothing was serving paths nothing had ever served, while `/slots`, `/onboarding` and the whole `/dashboard/*` tree went untested.
@@ -274,7 +320,7 @@ A test that passes while proving nothing is worse than no test, because it buys 
 
 **It is live, and anyone can call it.** Not a video, not a localhost demo — a public HTTPS URL with a real certificate, real Nova Sonic audio and real DynamoDB writes. Verified end to end: `/ping`, the page, the assets, a genuine `wss://` handshake returning **101 Switching Protocols** through CloudFront, and a `session_started` frame that only arrives *after* the Bedrock stream opens.
 
-**1,672 tests. `mypy --strict` clean across 110 source files.** All offline, no credentials needed — including property-based tests with Hypothesis and latency tests asserting response start $\le 1.5$ s and barge-in stop $\le 500$ ms.
+**1,758 tests. `mypy --strict` clean across 112 source files.** All offline, no credentials needed — including property-based tests with Hypothesis and latency tests asserting response start $\le 1.5$ s and barge-in stop $\le 500$ ms.
 
 **Fifty simultaneous callers, zero failures.** Every one got its own Nova Sonic session and its own distinct session id, with no Bedrock throttling: 3, 5, 10 and 50 concurrent calls against the live public URL. Greeting latency held near half a second at five callers and about four seconds at fifty — which we traced to thread-pool queueing on two vCPUs rather than anything in the model path.
 
