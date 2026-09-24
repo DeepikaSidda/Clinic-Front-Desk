@@ -134,7 +134,7 @@ Approving the gap-fill books the earliest matching waitlisted patient and remove
         +----------------------v-----------------------+
         |            Voice_Front_Desk                  |
         |  Strands BidiAgent + Nova Sonic              |
-        |  11 tools · guardrails · barge-in            |
+        |  12 tools · guardrails · barge-in            |
         |  turn signals -> policy -> tool orchestrator |
         +----------------------+-----------------------+
                                |

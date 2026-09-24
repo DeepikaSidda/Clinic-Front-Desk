@@ -26,7 +26,7 @@ it does not guess. It declines and escalates.
 | | |
 | --- | --- |
 | **Voice** | Amazon Nova Sonic, speech-to-speech over Amazon Bedrock bidirectional streaming |
-| **Agent** | Strands Agents SDK (`BidiAgent`), 11 tools |
+| **Agent** | Strands Agents SDK (`BidiAgent`), 12 tools |
 | **Storage** | Amazon DynamoDB, single table, 4 GSIs |
 | **Documents** | Amazon S3 + Bedrock embeddings, doctor-uploaded PDFs |
 | **Hosting** | CloudFront + EC2 `t4g.small` (public demo) · Bedrock AgentCore Runtime (container) |
@@ -340,7 +340,7 @@ Four subsystems over one shared data layer. Agents never touch storage directly.
         +----------------------v-----------------------+
         |            Voice_Front_Desk                  |
         |  Strands BidiAgent + Nova Sonic              |
-        |  11 tools · guardrails · barge-in            |
+        |  12 tools · guardrails · barge-in            |
         |  turn signals -> policy -> tool orchestrator |
         +----------------------+-----------------------+
                                |
@@ -685,6 +685,11 @@ without a rebuild.
 | `AWS_REGION` / `CLINIC_REGION` | `us-east-1` | Region for DynamoDB, S3, Bedrock |
 | `CLINIC_BACKEND` | `dynamodb` | `memory` swaps in in-memory fakes |
 | `CLINIC_VOICE_ONLY` | *(off)* | `1` serves only the caller-facing voice routes |
+| `CLINIC_CONSOLE_TOKEN` | *(unset)* | Publishes the **live console only** on a voice-only host, behind this shared secret. Minimum 24 characters, refused at startup below that. Unset = no console routed |
+| `CLINIC_UNATTENDED_AFTER_SECONDS` | `45` | How long a caller waits for a human before the agent apologises and offers a message. Must be long enough to actually answer — see below |
+| `CLINIC_HOLDING_AFTER_SECONDS` | `12` | When the caller is told someone is still being fetched, so the wait above is not silence |
+| `CLINIC_CONNECT_INSTANCE_ID` | *(unset)* | Amazon Connect instance; set with the flow id to route handovers to a phone line |
+| `CLINIC_CONNECT_FLOW_ID` | *(unset)* | Connect contact flow for the handover |
 | `CLINIC_NOVA_SONIC_MODEL_ID` | *(v1)* | Nova Sonic model id |
 | `CLINIC_RECORDINGS_BUCKET` | *(unset)* | **Unset = no audio captured at all** |
 | `CLINIC_RECORDINGS_PREFIX` | `call-recordings/` | S3 key prefix |
