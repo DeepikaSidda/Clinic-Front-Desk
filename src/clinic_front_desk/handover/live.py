@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import contextlib
 import logging
 import os
 import time
@@ -151,6 +152,16 @@ class LiveCall:
     unattended_notified: bool = False
     #: Set once the caller has been reassured that someone is still being fetched.
     holding_notified: bool = False
+    #: Puts audio spoken to the caller by a human into the call recording.
+    #:
+    #: Set by the voice route when recording is configured. Needed because the
+    #: doctor's voice and her typed-then-synthesised lines go straight out to the
+    #: caller from here, bypassing the model's output handler where recording
+    #: happens — so without this the recording of a call a person took over contains
+    #: the caller's side and silence where the clinic answered. On a medical line
+    #: that is the half of the conversation that matters most.
+    record_agent_audio: Callable[[bytes, int], None] | None = None
+
     #: The doctor's own socket, once she has joined with a microphone.
     #:
     #: Present means a real two-way call: her voice reaches the caller and the
@@ -398,6 +409,11 @@ class LiveHandoverService:
                 "channels": channels,
             }
         )
+        # Into the recording as well, on the clinic's channel. What the doctor says
+        # on a recorded line is part of the record of that call.
+        if call.record_agent_audio is not None:
+            with contextlib.suppress(Exception):
+                call.record_agent_audio(base64.b64decode(audio), sample_rate)
         return True
 
     async def relay_caller_audio(
@@ -509,6 +525,12 @@ class LiveHandoverService:
                     "channels": 1,
                 }
             )
+        # Recorded once, whole, rather than per frame: same audio, fewer calls.
+        # Covers the typed handover and the nobody-picked-up apology, both of which
+        # the caller heard and neither of which reached the recording before.
+        if call.record_agent_audio is not None:
+            with contextlib.suppress(Exception):
+                call.record_agent_audio(pcm, POLLY_SAMPLE_RATE)
         return True
 
 

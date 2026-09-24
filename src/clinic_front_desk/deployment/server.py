@@ -1042,6 +1042,15 @@ class AgentCoreServer:
                 )
 
             async def forward_audio(chunk: Any) -> None:
+                # Suppression first, so the recording matches the call.
+                #
+                # This used to record before checking, which meant a call a human took
+                # over was recorded with the model's speech on the clinic's channel —
+                # audio the caller never heard, at the exact moment the doctor was
+                # actually talking. A recording that invents one side of a medical
+                # conversation is worse than one with a gap.
+                if _held_by_human():
+                    return
                 if record_audio:
                     recorder.add_agent_audio(
                         base64.b64decode(chunk.audio or ""),
@@ -1155,7 +1164,17 @@ class AgentCoreServer:
             # phantom "in progress" calls on the doctor's console for twenty
             # minutes, showing "Nothing said yet" and offering a dead line to take
             # over. Registering last makes the window empty by construction.
-            self.live_calls.register(session.session_id, send)
+            live = self.live_calls.register(session.session_id, send)
+
+            # Let the handover paths reach the recorder. The doctor's microphone and
+            # her typed lines go straight out to the caller from the handover service,
+            # never through the model's output handler above, so without this hook the
+            # recording of a call she took over holds the caller's side and nothing
+            # from the clinic.
+            if record_audio:
+                live.record_agent_audio = lambda pcm, rate: recorder.add_agent_audio(
+                    pcm, sample_rate=rate
+                )
 
             # Comes back to the caller if nobody picks up. Observed on a real call:
             # the agent said it was connecting someone, the call was flagged on the
