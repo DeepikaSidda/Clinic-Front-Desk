@@ -169,6 +169,11 @@ Environment=AWS_REGION={REGION}
 Environment=CLINIC_RECORDINGS_BUCKET={RECORDINGS_BUCKET}
 Environment=CLINIC_DOCUMENTS_BUCKET={RECORDINGS_BUCKET}
 Environment=CLINIC_LOG_LEVEL=info
+# The live-console shared secret, if one has been set. Deliberately a file rather
+# than a literal here: this script is in a public repo, and a secret committed once
+# is committed permanently. The leading '-' means a missing file is not an error, so
+# the default stays voice-only with no console routed at all.
+EnvironmentFile=-/etc/clinic-console.env
 ExecStart=/opt/clinic/venv/bin/uvicorn entrypoint:app --host 0.0.0.0 --port 80 \
   --proxy-headers --forwarded-allow-ips='*'
 Restart=always

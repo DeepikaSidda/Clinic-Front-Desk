@@ -42,3 +42,7 @@ Thumbs.db
 .certs/
 *.pem
 *.key
+
+# The live-console shared secret (scripts/make_console_token.py). Anyone holding it
+# can watch and join calls in progress on the public host.
+.secrets/

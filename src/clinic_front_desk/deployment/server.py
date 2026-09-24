@@ -602,6 +602,16 @@ _LIVE_CONSOLE_BUILD = hashlib.sha256(_LIVE_CONSOLE_HTML.encode("utf-8")).hexdige
 
 _LIVE_CONSOLE_HTML = _LIVE_CONSOLE_HTML.replace("__BUILD__", _LIVE_CONSOLE_BUILD)
 
+#: Never cache this, anywhere, by anyone.
+#:
+#: For the live console and its polling: everything here describes a call happening
+#: right now, and a cached copy of that is actively misleading rather than merely old.
+NO_STORE = {
+    "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+    "Pragma": "no-cache",
+    "Expires": "0",
+}
+
 #: Transcript roles that belong to the person who rang the clinic.
 #:
 #: Nova Sonic labels the caller ``"user"``. Spelled out here because a guard that
@@ -1882,7 +1892,15 @@ def create_asgi_app(
         """``GET /dashboard/live`` — calls in progress, the ones needing a human first."""
         if _live_guard(request) is None:
             return error_response("Access denied.", 403, "AccessDeniedException")
-        return JSONResponse({"calls": runtime_server.live_calls.list_calls()})
+        return JSONResponse(
+            {"calls": runtime_server.live_calls.list_calls()},
+            # Whoever is in front of a CDN must not be able to cache this. A stale
+            # list means a call shown as waiting that was answered minutes ago, or a
+            # live one missing entirely — worse than an empty console, because it
+            # looks authoritative. Currently uncached by the distribution's policy;
+            # this stops that being the only thing preventing it.
+            headers=NO_STORE,
+        )
 
     async def live_transcript_route(request: StarletteRequest) -> Response:
         """``GET /dashboard/live/{id}/transcript`` — so a doctor joining late catches up."""
@@ -2025,20 +2043,14 @@ def create_asgi_app(
         role = _live_guard(request)
         if role is None:
             return error_response("Access denied.", 403, "AccessDeniedException")
+        # This page *is* its JavaScript — the console's whole behaviour is inlined, so
+        # a cached copy is stale code, not just stale text. Served without these
+        # headers it silently kept handing back an old console after deploys: buttons
+        # missing, fixes apparently not applied, and nothing on the server side to
+        # show for it. A doctor picking up a live call must not be looking at a build
+        # from before the last restart.
         return StarletteResponse(
-            _LIVE_CONSOLE_HTML,
-            media_type="text/html",
-            # This page *is* its JavaScript — the console's whole behaviour is
-            # inlined, so a cached copy is stale code, not just stale text. Served
-            # without these headers it silently kept handing back an old console
-            # after deploys: buttons missing, fixes apparently not applied, and
-            # nothing on the server side to show for it. A doctor picking up a live
-            # call must not be looking at a build from before the last restart.
-            headers={
-                "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
-                "Pragma": "no-cache",
-                "Expires": "0",
-            },
+            _LIVE_CONSOLE_HTML, media_type="text/html", headers=NO_STORE
         )
 
     async def resolve_decision_route(request: StarletteRequest) -> Response:
