@@ -143,6 +143,22 @@ def book_appointment(
     if slot is None:
         return Err(NotFound(detail=f"slot {slot_id!r} not found"))
 
+    # Claim the slot *before* writing the appointment, and conditionally.
+    #
+    # This used to read the slot, create the appointment, then overwrite the slot's
+    # status to booked — without ever checking it was open. Booking an already-booked
+    # half hour therefore succeeded: the second appointment was written, the slot was
+    # re-stamped booked, and the first patient kept an appointment pointing at the
+    # same time. Two people, one slot, and nothing in the data admitting it. The
+    # doctor would have found out when they both arrived.
+    #
+    # Claiming first also makes the slot the point of mutual exclusion, so two
+    # simultaneous callers cannot both get an appointment row; the loser is told the
+    # slot went, which is true and actionable.
+    claim_result = store.claim_slot(slot_id)
+    if is_err(claim_result):
+        return Err(_to_tool_error(claim_result.error))
+
     timestamp = now or _now_iso()
     appointment = Appointment(
         id=appointment_id or str(uuid.uuid4()),
@@ -159,15 +175,12 @@ def book_appointment(
 
     create_result = store.create(appointment)
     if is_err(create_result):
-        # Nothing was written; no partial appointment to clean up (Req 2.8).
+        # Compensate the claim: release the slot rather than leaving it booked
+        # against an appointment that was never written, which would silently
+        # withdraw a half hour from the calendar (Req 2.8).
+        store.set_slot_status(slot_id, SlotStatus.OPEN)
         return Err(_to_tool_error(create_result.error))
     created = create_result.value
-
-    status_result = store.set_slot_status(slot_id, SlotStatus.BOOKED)
-    if is_err(status_result):
-        # Compensate: undo the appointment so no partial booking survives (Req 2.8).
-        store.remove(created.id)
-        return Err(_to_tool_error(status_result.error))
 
     return Ok(BookingResult(appointment=created))
 

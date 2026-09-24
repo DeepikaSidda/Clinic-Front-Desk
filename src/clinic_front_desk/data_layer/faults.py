@@ -327,6 +327,9 @@ class FaultInjectingAppointmentStore(_FaultInjectingStore, AppointmentStore):
             slot_id, status
         )
 
+    def claim_slot(self, slot_id: str) -> StoreResult[Slot]:
+        return self._guard("claim_slot", (slot_id,), {}) or self._store.claim_slot(slot_id)
+
     def set_slot_statuses(
         self, slots: Sequence[Slot], status: SlotStatus
     ) -> StoreResult[list[Slot]]:

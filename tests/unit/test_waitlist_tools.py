@@ -303,16 +303,21 @@ def test_fill_gap_booking_failure_leaves_slot_and_entry_unchanged() -> None:
     assert [e.id for e in wl.list_by_service_ordered("ent").unwrap()] == ["w1"]
 
 
-def test_fill_gap_slot_status_failure_is_compensated() -> None:
-    """Req 8.5: if marking the slot booked fails, the created appointment is
-    rolled back so the slot is left open and the entry unchanged."""
+def test_fill_gap_slot_claim_failure_is_compensated() -> None:
+    """Req 8.5: a failed slot claim leaves the slot open and the entry unchanged.
+
+    The gap-fill claims the slot conditionally *before* writing the appointment, so
+    ``claim_slot`` is the write that can fail here. It matters most on this path: the
+    doctor approves a Decision detected minutes earlier, by which time a caller may
+    already have taken the slot.
+    """
     wl = MemoryWaitlistStore()
     appts_base = MemoryAppointmentStore()
     _open_slot(appts_base, slot_id="s1", provider_id="prov1", service="ent",
                start="2025-06-10T14:30:00Z")
     _seed_entry(wl, entry_id="w1", patient_id="p1", service="ent",
                 slot_type="any", added_at="2025-06-01T09:00:00Z")
-    appts = wrap(appts_base, fail_on("set_slot_status"))
+    appts = wrap(appts_base, fail_on("claim_slot"))
 
     result = fill_gap_from_waitlist(wl, appts, slot_id="s1", appointment_id="a1")
 

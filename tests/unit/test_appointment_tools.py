@@ -124,18 +124,81 @@ def test_book_create_failure_leaves_no_partial_appointment() -> None:
     assert store.get_slot("s1").unwrap().status == SlotStatus.OPEN
 
 
-def test_book_slot_status_failure_rolls_back_appointment() -> None:
+def test_book_slot_claim_failure_writes_no_appointment() -> None:
+    """Req 2.8, with the claim moved ahead of the appointment write.
+
+    Booking now claims the slot first, so a failed claim means there was never an
+    appointment to roll back. Faults on ``set_slot_status`` no longer exercise this
+    path — the booking does not call it.
+    """
     store = _store_with_slots()
-    guarded = wrap(store, fail_on("set_slot_status"))
+    guarded = wrap(store, fail_on("claim_slot"))
     result = book_appointment(
         guarded, provider_id="prov1", patient_id="p1", slot_id="s1", service="ent",
         appointment_id="a1",
     )
     assert is_err(result)
     assert result.error.kind == "store_failure"
-    # Compensating rollback removed the appointment; slot never booked (Req 2.8).
     assert store.get("a1").unwrap() is None
     assert store.get_slot("s1").unwrap().status == SlotStatus.OPEN
+
+
+def test_booking_a_slot_twice_is_refused() -> None:
+    """The bug: the same half hour could be sold to two patients.
+
+    ``book_appointment`` read the slot, wrote the appointment, then stamped the slot
+    booked without ever checking it was open. The second booking succeeded, and both
+    patients held an appointment on the same time with nothing in the data saying so.
+    """
+    store = _store_with_slots()
+    first = book_appointment(
+        store, provider_id="prov1", patient_id="p1", slot_id="s1", service="ent",
+        appointment_id="a1",
+    )
+    assert not is_err(first)
+
+    second = book_appointment(
+        store, provider_id="prov1", patient_id="p2", slot_id="s1", service="ent",
+        appointment_id="a2",
+    )
+
+    assert is_err(second), "the slot was already taken"
+    assert "not open" in second.error.detail.lower()
+    # And the second patient got no appointment at all, rather than a phantom one.
+    assert store.get("a2").unwrap() is None
+    # The first patient still holds the slot.
+    assert store.get("a1").unwrap().patient_id == "p1"
+    assert store.get_slot("s1").unwrap().status == SlotStatus.BOOKED
+
+
+def test_a_blocked_slot_cannot_be_booked() -> None:
+    """The doctor's lunch hour is not available because she blocked it."""
+    store = _store_with_slots()
+    store.set_slot_status("s1", SlotStatus.BLOCKED)
+
+    result = book_appointment(
+        store, provider_id="prov1", patient_id="p1", slot_id="s1", service="ent",
+        appointment_id="a1",
+    )
+
+    assert is_err(result)
+    assert store.get("a1").unwrap() is None
+    assert store.get_slot("s1").unwrap().status == SlotStatus.BLOCKED
+
+
+def test_rescheduling_onto_a_booked_slot_is_refused() -> None:
+    """The same gap existed on the move path, so it is held down too."""
+    store = _store_with_slots()
+    _book(store, slot_id="s1", appt_id="a1")
+    _book(store, slot_id="s2", appt_id="a2")
+
+    moved = reschedule(store, appointment_id="a1", new_slot_id="s2")
+
+    assert is_err(moved), "s2 is held by a2"
+    # a2 keeps its slot and a1 keeps its own.
+    assert store.get("a2").unwrap().slot_id == "s2"
+    assert store.get("a1").unwrap().slot_id == "s1"
+    assert store.get_slot("s1").unwrap().status == SlotStatus.BOOKED
 
 
 # -- reschedule -------------------------------------------------------------

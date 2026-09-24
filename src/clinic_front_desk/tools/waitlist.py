@@ -207,20 +207,21 @@ def fill_gap_from_waitlist(
         updated_at=now,
     )
 
-    # Book the patient into the slot (Req 8.3). A failed create is atomic, so the
-    # slot stays open and the entry is untouched (Req 8.5) — nothing to undo.
+    # Claim the slot first, and conditionally (Req 8.3). The doctor approves a
+    # gap-fill from a Decision that may have been detected minutes ago, so the slot
+    # can easily have been taken by a caller in between — this is the path most
+    # likely to race of the three, not the least. Overwriting the status here would
+    # have booked the waitlisted patient on top of whoever rang in.
+    claimed = appointment_store.claim_slot(slot.id)
+    if is_err(claimed):
+        return Err(StoreFailure(store="AppointmentStore", detail=claimed.error.detail))
+
     created = appointment_store.create(appointment)
     if is_err(created):
+        # Release the slot: it is held for an appointment that was never written.
+        appointment_store.set_slot_status(slot.id, SlotStatus.OPEN)
         return Err(StoreFailure(store="AppointmentStore", detail=created.error.detail))
     booked = created.value
-
-    # Mark the slot booked to keep slot/appointment state consistent.
-    slot_status = appointment_store.set_slot_status(slot.id, SlotStatus.BOOKED)
-    if is_err(slot_status):
-        # Compensate: remove the just-created appointment (which releases the
-        # slot back to open) so the slot is left open (Req 8.5).
-        appointment_store.remove(booked.id)
-        return Err(StoreFailure(store="AppointmentStore", detail=slot_status.error.detail))
 
     # Remove the filled patient's waitlist entry (Req 8.4).
     removed = waitlist_store.remove(selected.id)

@@ -132,6 +132,36 @@ class DynamoStoreBase:
         """Write a plain item, converting numbers to ``Decimal`` for boto3."""
         self._table.put_item(Item=to_dynamo(item))
 
+    def _put_if(self, item: Item, *, condition: Any) -> bool:
+        """Write an item only if ``condition`` holds on the stored one.
+
+        For read-then-write sequences where another caller may have changed the item
+        in between — booking a slot being the case that matters, since two callers
+        can be offered the same half hour. DynamoDB evaluates the condition and the
+        write as one operation, so the loser of a race is told rather than silently
+        overwriting the winner.
+
+        Returns:
+            ``True`` if written, ``False`` if the condition failed. Any other
+            error propagates: a throttle or a network fault is not a lost race, and
+            treating it as one would report a taken slot for the wrong reason.
+        """
+        try:
+            self._table.put_item(Item=to_dynamo(item), ConditionExpression=condition)
+        except Exception as exc:  # noqa: BLE001 - narrowed immediately below
+            # Matched by name rather than by class: botocore builds
+            # ConditionalCheckFailedException dynamically on the client, so there is
+            # no stable importable type to catch here.
+            if type(exc).__name__ == "ConditionalCheckFailedException":
+                return False
+            response = getattr(exc, "response", None)
+            if isinstance(response, dict):
+                code = response.get("Error", {}).get("Code")
+                if code == "ConditionalCheckFailedException":
+                    return False
+            raise
+        return True
+
     def _put_many(self, items: list[Item]) -> None:
         """Write many items through a batch writer.
 

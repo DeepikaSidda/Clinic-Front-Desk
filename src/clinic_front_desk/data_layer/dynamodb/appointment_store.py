@@ -65,7 +65,7 @@ from clinic_front_desk.models import (
     slot_to_item,
 )
 
-from ._support import GSI1, GSI2, DynamoStoreBase, Key
+from ._support import GSI1, GSI2, Attr, DynamoStoreBase, Key
 
 _STORE = "DynamoAppointmentStore"
 
@@ -148,6 +148,16 @@ class DynamoAppointmentStore(AppointmentStore, DynamoStoreBase):
             return _validation_err("provider_id", "slot provider_id is required")
 
         old_slot_id = appt.slot_id
+        # Same double-booking gap as direct booking: this stamped the target slot
+        # booked without checking it was open, so a reschedule could take a half hour
+        # another patient already held. Re-seating onto the appointment's own slot is
+        # still fine, since nothing changes.
+        if new_slot_id != old_slot_id and new_slot.status != SlotStatus.OPEN:
+            return _validation_err(
+                "new_slot_id",
+                f"slot {new_slot_id!r} is {new_slot.status.value}, not open; "
+                "the appointment cannot be moved onto it",
+            )
         old_slot_item = self._find_by_entity_id("Slot", old_slot_id) if old_slot_id else None
         old_slot = slot_from_item(old_slot_item) if old_slot_item is not None else None
 
@@ -351,6 +361,46 @@ class DynamoAppointmentStore(AppointmentStore, DynamoStoreBase):
             return _validation_err("provider_id", "slot provider_id is required")
         slot.status = status
         self._put(slot_to_item(slot))
+        self._emit(ChangeEntity.SLOT, slot_id, ChangeKind.UPDATED)
+        return Ok(slot)
+
+    def claim_slot(self, slot_id: str) -> StoreResult[Slot]:
+        """Atomically take an open slot for a booking, via a condition expression.
+
+        The condition is what makes this safe. Reading the slot, seeing ``open`` and
+        then writing ``booked`` leaves a window in which another caller does the
+        same, and both bookings appear to succeed. Asking DynamoDB to perform the
+        write *only if* the stored status is still ``open`` collapses that to one
+        operation, so exactly one caller can win.
+        """
+        item = self._find_by_entity_id("Slot", slot_id)
+        if item is None:
+            return _not_found_err(f"slot {slot_id!r} not found")
+        slot = slot_from_item(item)
+        if not slot.provider_id:
+            return _validation_err("provider_id", "slot provider_id is required")
+        if slot.status != SlotStatus.OPEN:
+            # Cheap rejection before the write for the ordinary case: the slot was
+            # already taken well before this call.
+            return _validation_err(
+                "slot_id",
+                f"slot {slot_id!r} is {slot.status.value}, not open; it cannot be booked",
+            )
+
+        slot.status = SlotStatus.BOOKED
+        # Writing the whole item regenerates GSI1 keys, moving the slot out of the
+        # open partition so availability stops offering it.
+        written = self._put_if(
+            slot_to_item(slot),
+            condition=Attr("status").eq(SlotStatus.OPEN.value),
+        )
+        if not written:
+            # Lost the race: someone booked it between the read above and this write.
+            return _validation_err(
+                "slot_id",
+                f"slot {slot_id!r} was taken by another booking just now; "
+                "it is no longer open",
+            )
         self._emit(ChangeEntity.SLOT, slot_id, ChangeKind.UPDATED)
         return Ok(slot)
 

@@ -108,6 +108,18 @@ class MemoryAppointmentStore(AppointmentStore, MemoryStoreBase):
             return validation_err(_STORE, "provider_id", "slot provider_id is required")
 
         old_slot_id = appt.slot_id
+        # Moving onto a slot someone else holds is the same double-booking as
+        # booking one directly, and this path had the same gap: it stamped the
+        # target booked without asking whether it already was. Re-seating onto the
+        # appointment's own slot stays allowed, since that changes nothing.
+        if new_slot_id != old_slot_id and new_slot.status != SlotStatus.OPEN:
+            return validation_err(
+                _STORE,
+                "new_slot_id",
+                f"slot {new_slot_id!r} is {new_slot.status.value}, not open; "
+                "the appointment cannot be moved onto it",
+            )
+
         old_slot = self._slots.get(old_slot_id)
 
         # Commit: new slot -> booked, previously held slot -> open, appointment
@@ -244,6 +256,31 @@ class MemoryAppointmentStore(AppointmentStore, MemoryStoreBase):
         if not slot.provider_id:
             return validation_err(_STORE, "provider_id", "slot provider_id is required")
         slot.status = status
+        self._emit(ChangeEntity.SLOT, slot_id, ChangeKind.UPDATED)
+        return Ok(self._copy(slot))
+
+    def claim_slot(self, slot_id: str) -> StoreResult[Slot]:
+        """Atomically take an open slot for a booking.
+
+        Atomic here by construction: the check and the write are one uninterrupted
+        step within this method, and the store is a plain in-process dict. The
+        DynamoDB implementation needs a condition expression to get the same
+        property, which is why this is its own store method rather than a check the
+        calling tool performs.
+        """
+        slot = self._slots.get(slot_id)
+        if slot is None:
+            return not_found_err(_STORE, f"slot {slot_id!r} not found")
+        if not slot.provider_id:
+            return validation_err(_STORE, "provider_id", "slot provider_id is required")
+        if slot.status != SlotStatus.OPEN:
+            return validation_err(
+                _STORE,
+                "slot_id",
+                f"slot {slot_id!r} is {slot.status.value}, not open; "
+                "it cannot be booked",
+            )
+        slot.status = SlotStatus.BOOKED
         self._emit(ChangeEntity.SLOT, slot_id, ChangeKind.UPDATED)
         return Ok(self._copy(slot))
 

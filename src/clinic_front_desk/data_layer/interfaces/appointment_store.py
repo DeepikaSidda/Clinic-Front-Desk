@@ -243,7 +243,34 @@ class AppointmentStore(ABC):
     def set_slot_status(self, slot_id: str, status: SlotStatus) -> StoreResult[Slot]:
         """Set a slot's lifecycle status, returning the updated slot.
 
+        Unconditional, and therefore **not** how a booking claims a slot — use
+        :meth:`claim_slot` for that. This is for the doctor blocking or reopening
+        time, where overwriting whatever was there is the intent.
+
         Rejects the change for a slot missing a ``provider_id`` (Req 16.7).
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def claim_slot(self, slot_id: str) -> StoreResult[Slot]:
+        """Take a slot for a booking: ``open`` -> ``booked``, **atomically**.
+
+        Exists because checking a slot is free and then booking it are two
+        operations, and a calendar is shared. Between the read and the write another
+        caller can take the same half hour — and this agent answers many calls at
+        once, so two callers being offered the same slot is ordinary rather than
+        exotic. ``set_slot_status(BOOKED)`` cannot express that: it overwrites, so
+        the second booking silently wins the slot while the first patient keeps an
+        appointment pointing at it. Two people, one half hour, and nothing in the
+        data saying so.
+
+        Implementations must make the transition conditional on the slot still being
+        ``open``, in a single operation the store cannot interleave.
+
+        Returns:
+            ``Ok(Slot)`` with the slot now ``booked``; ``Err`` of kind
+            ``NOT_FOUND`` if no such slot exists, or ``VALIDATION`` if it was not
+            ``open`` — already booked, or blocked by the doctor.
         """
         raise NotImplementedError
 

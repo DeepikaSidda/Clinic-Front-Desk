@@ -90,7 +90,7 @@ _PROVIDER = "prov1"
 _GAP_SERVICE = "ent"
 _SLOT_DAY = "2025-06-01"
 _GAP_FAULTS = st.sampled_from(
-    [None, "appointment_create", "slot_status", "waitlist_remove"]
+    [None, "appointment_create", "slot_claim", "waitlist_remove"]
 )
 
 
@@ -165,8 +165,12 @@ def test_property_20_decision_resolution_outcomes(
     if apply_fault:
         if fault_choice == "appointment_create":
             appt_store = wrap(real_appt, fail_on("create"))
-        elif fault_choice == "slot_status":
-            appt_store = wrap(real_appt, fail_on("set_slot_status"))
+        elif fault_choice == "slot_claim":
+            # ``claim_slot``, not ``set_slot_status``: booking a slot is now a
+            # conditional open -> booked claim, so that is the write that can fail
+            # here. Pointed at the old method this fault stopped firing at all, and
+            # the property quietly stopped testing anything.
+            appt_store = wrap(real_appt, fail_on("claim_slot"))
         else:  # waitlist_remove
             wait_store = wrap(real_wait, fail_on("remove"))
 
