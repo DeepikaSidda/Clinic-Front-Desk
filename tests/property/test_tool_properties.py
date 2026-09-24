@@ -39,6 +39,7 @@ from clinic_front_desk.models import (
     ClinicKnowledgeBase,
     DayHours,
     Duplicate,
+    format_money,
     NotFound,
     NotOffered,
     Provider,
@@ -452,7 +453,7 @@ def test_property_9_faq_pricing_and_availability(
         else:
             # Configured price -> returns exactly that price.
             assert is_ok(result)
-            assert f"${price:.2f}" in result.value
+            assert format_money(price) in result.value
 
     # A service absent from the knowledge base -> unavailable (Req 6.5), not
     # fabricated. The sentinel is longer than any generated name so it can never

@@ -105,7 +105,7 @@ def _store(kb: ClinicKnowledgeBase | None) -> MemoryClinicKnowledgeBaseStore:
 # ---------------------------------------------------------------------------
 
 
-def test_the_six_structured_topics_are_unchanged() -> None:
+def test_the_structured_topics_mirror_the_configured_fields() -> None:
     # The structured topics mirror the wizard's fields; the document topic is
     # additional, not a replacement.
     assert VALID_TOPICS == {
@@ -115,6 +115,7 @@ def test_the_six_structured_topics_are_unchanged() -> None:
         "prep",
         "insurance",
         "pricing",
+        "contact",
     }
 
 
@@ -127,7 +128,7 @@ def test_pricing_is_excluded_from_the_fallback() -> None:
     # A price lifted from a document could be last year's, another plan's, or from
     # a comparison sheet — quoted in a voice the caller treats as the clinic's.
     assert "pricing" not in DOCUMENT_FALLBACK_TOPICS
-    assert DOCUMENT_FALLBACK_TOPICS == VALID_TOPICS - {"pricing"}
+    assert DOCUMENT_FALLBACK_TOPICS == VALID_TOPICS - {"pricing", "contact"}
 
 
 def test_an_unrecognised_topic_is_still_a_validation_error() -> None:

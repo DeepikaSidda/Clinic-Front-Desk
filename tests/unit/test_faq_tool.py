@@ -72,7 +72,10 @@ def test_unknown_topic_is_validation_error() -> None:
     assert result.error.field == "topic"
 
 
-def test_valid_topics_set_matches_expected_six() -> None:
+def test_valid_topics_set_matches_the_structured_fields() -> None:
+    """``contact`` is structured for the same reason ``pricing`` is: a phone
+    number is an instruction the caller acts on, and the wrong one sends them
+    to a stranger."""
     assert VALID_TOPICS == {
         "hours",
         "location",
@@ -80,6 +83,7 @@ def test_valid_topics_set_matches_expected_six() -> None:
         "prep",
         "insurance",
         "pricing",
+        "contact",
     }
 
 
@@ -126,7 +130,7 @@ def test_what_to_bring_without_service_returns_the_single_prep() -> None:
 def test_service_matching_is_case_insensitive() -> None:
     result = answer_faq(_store_with(_kb()), "pricing", service="hearing test")
     assert is_ok(result)
-    assert "150.00" in result.value
+    assert "150 rupees" in result.value
 
 
 # ---------------------------------------------------------------------------
@@ -138,7 +142,7 @@ def test_pricing_returns_configured_price() -> None:
     result = answer_faq(_store_with(_kb()), "pricing", service="Hearing Test")
     assert is_ok(result)
     assert "Hearing Test" in result.value
-    assert "150.00" in result.value
+    assert "150 rupees" in result.value
 
 
 def test_pricing_without_service_is_validation_error() -> None:

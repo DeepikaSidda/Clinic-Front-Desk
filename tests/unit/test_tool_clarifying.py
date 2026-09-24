@@ -92,7 +92,7 @@ def test_single_answer_faq_pricing_states_the_configured_price() -> None:
     result = answer_faq(store, "pricing", service="Hearing Test")
 
     assert is_ok(result)
-    assert "150.00" in result.value
+    assert "150 rupees" in result.value
 
 
 # ---------------------------------------------------------------------------

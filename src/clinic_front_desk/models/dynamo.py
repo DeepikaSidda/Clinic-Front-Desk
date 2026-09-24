@@ -169,6 +169,7 @@ def clinic_kb_to_item(kb: ClinicKnowledgeBase) -> Item:
         "hours": _hours_to_dict(kb.hours),
         "services": [_service_to_dict(s) for s in kb.services],
         "accepted_insurance": list(kb.accepted_insurance),
+        "contact_phone": kb.contact_phone,
         "providers": [_provider_to_dict(p) for p in kb.providers],
         "symptom_routes": [_symptom_route_to_dict(r) for r in kb.symptom_routes],
         "configured": kb.configured,
@@ -182,6 +183,9 @@ def clinic_kb_from_item(item: Item) -> ClinicKnowledgeBase:
         hours=_hours_from_dict(item.get("hours", {})),
         services=[_service_from_dict(s) for s in item.get("services", [])],
         accepted_insurance=list(item.get("accepted_insurance", [])),
+        # Defaulted so a config written before this field existed loads cleanly and
+        # simply has no number to offer, which is the pre-feature behaviour.
+        contact_phone=str(item.get("contact_phone") or ""),
         providers=[_provider_from_dict(p) for p in item.get("providers", [])],
         # Defaulted, so a config written before routing existed loads cleanly and
         # simply routes nothing — which is the pre-feature behaviour.

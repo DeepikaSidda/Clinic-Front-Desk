@@ -116,7 +116,7 @@ def test_configured_details_are_stated() -> None:
     assert "Monday 09:00 to 17:00" in briefing
     assert "Friday 09:00 to 13:00" in briefing
     assert "Hearing Test" in briefing
-    assert "$150.00" in briefing
+    assert "150 rupees" in briefing
     assert "Avoid loud noise for 24 hours beforehand." in briefing
     assert "Aetna, Medicare" in briefing
     assert "Dr. Amara Reyes" in briefing
@@ -126,8 +126,14 @@ def test_a_service_without_a_price_is_named_but_not_priced() -> None:
     briefing = build_clinic_briefing(_kb_store(_kb()), None)
 
     assert "Consultation" in briefing
-    # No invented figure for the unpriced service.
-    assert "Consultation $" not in briefing
+    # No invented figure for the unpriced service. Asserted against the Prices line
+    # itself rather than against a currency symbol: the old check looked for
+    # "Consultation $", which stopped meaning anything the moment prices started
+    # being spoken as rupees, and would have passed while quoting a made-up fee.
+    prices = next(
+        (line for line in briefing.splitlines() if line.startswith("- Prices:")), ""
+    )
+    assert "Consultation" not in prices, prices
 
 
 def test_closed_days_are_simply_absent() -> None:

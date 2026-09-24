@@ -35,6 +35,7 @@ from clinic_front_desk.models import (
     NotOffered,
     Ok,
     ServiceConfig,
+    format_money,
     StoreFailure,
     ToolError,
     ToolResult,
@@ -46,8 +47,16 @@ from clinic_front_desk.models import (
 if TYPE_CHECKING:  # pragma: no cover - import kept out of runtime
     from clinic_front_desk.documents.retrieval import DocumentKnowledge
 
-# The six FAQ topics the tool answers (design ``answer_faq`` signature, Req 6.1).
-FaqTopic = Literal["hours", "location", "what_to_bring", "prep", "insurance", "pricing"]
+# The FAQ topics the tool answers (design ``answer_faq`` signature, Req 6.1).
+#
+# ``contact`` is the clinic's own phone number, and it is structured for the same
+# reason ``pricing`` is: it drives an action the caller will take on the clinic's
+# word. A number pulled out of a document could be a fax line, a supplier's, or a
+# previous practice's — and a caller given the wrong number rings it, reaches a
+# stranger, and still has not reached the clinic. Worse than saying nothing.
+FaqTopic = Literal[
+    "hours", "location", "what_to_bring", "prep", "insurance", "pricing", "contact"
+]
 
 #: The set of recognised **structured** topics, derived from :data:`FaqTopic` so the
 #: two stay in lock-step. Each maps to fields the onboarding wizard collects.
@@ -76,7 +85,9 @@ ANSWERABLE_TOPICS: frozenset[str] = VALID_TOPICS | {DOCUMENT_TOPIC}
 #: clinic's word. Prices come from the configured service record or the caller is
 #: told the price is unavailable. This is the same reasoning that keeps offered
 #: services out of retrieval: values that *drive commitments* stay structured.
-DOCUMENT_FALLBACK_TOPICS: frozenset[str] = VALID_TOPICS - {"pricing"}
+#: ``contact`` is excluded on the same grounds: a phone number is an instruction the
+#: caller acts on, and the wrong one sends them to a stranger.
+DOCUMENT_FALLBACK_TOPICS: frozenset[str] = VALID_TOPICS - {"pricing", "contact"}
 
 #: Queries used when the caller's own wording was not passed through.
 #:
@@ -188,6 +199,8 @@ def answer_faq(
         )
     elif topic == "pricing":
         structured = _answer_pricing(kb, service)
+    elif topic == "contact":
+        structured = _answer_contact(kb)
     elif topic == "hours":
         structured = _answer_hours(kb)
     elif topic == "location":
@@ -250,6 +263,18 @@ def _from_documents(
 # ---------------------------------------------------------------------------
 
 
+def _answer_contact(kb: ClinicKnowledgeBase) -> ToolResult[str]:
+    """Give the clinic's own phone number, or say plainly that there isn't one.
+
+    No document fallback and no guessing: an unconfigured number yields an
+    unavailable result, exactly as an unconfigured price does.
+    """
+    number = (kb.contact_phone or "").strip()
+    if not number:
+        return Err(NotFound(detail="no clinic contact number is configured"))
+    return Ok(f"You can reach the clinic on {number}.")
+
+
 def _answer_pricing(kb: ClinicKnowledgeBase, service: str | None) -> ToolResult[str]:
     """Answer a pricing question for a named service (Req 6.4, 6.5)."""
     if service is None or not service.strip():
@@ -270,7 +295,7 @@ def _answer_pricing(kb: ClinicKnowledgeBase, service: str | None) -> ToolResult[
             NotFound(detail=f"no configured price for service {matched.name!r}")
         )
 
-    return Ok(f"The price for {matched.name} is ${matched.price:.2f}.")
+    return Ok(f"The price for {matched.name} is {format_money(matched.price)}.")
 
 
 def _answer_hours(kb: ClinicKnowledgeBase) -> ToolResult[str]:

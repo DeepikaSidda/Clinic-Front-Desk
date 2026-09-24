@@ -46,7 +46,7 @@ from clinic_front_desk.data_layer.interfaces import (
     ClinicDocumentStore,
     ClinicKnowledgeBaseStore,
 )
-from clinic_front_desk.models import ClinicKnowledgeBase, is_err
+from clinic_front_desk.models import ClinicKnowledgeBase, format_money, is_err
 
 logger = logging.getLogger(__name__)
 
@@ -117,12 +117,23 @@ def _config_lines(kb: ClinicKnowledgeBase) -> list[str]:
     if hours:
         lines.append(f"- Opening hours: {hours}")
 
+    # The number to give a caller the agent cannot finish helping. Stated as the only
+    # number it may say, because the alternative is a model reaching for a
+    # plausible-looking one — and a wrong phone number is worse than none: the caller
+    # rings it, reaches a stranger, and still has not reached the clinic.
+    if kb.contact_phone and kb.contact_phone.strip():
+        lines.append(
+            f"- Clinic phone number: {kb.contact_phone.strip()} — give this when the "
+            "caller asks how to reach the clinic, or when you cannot help them "
+            "yourself. Never say any other number."
+        )
+
     if kb.services:
         named = ", ".join(service.name for service in kb.services if service.name)
         if named:
             lines.append(f"- Services offered (exact names): {named}")
         priced = [
-            f"{service.name} ${service.price:.2f}"
+            f"{service.name} {format_money(service.price)}"
             for service in kb.services
             if service.name and service.price is not None
         ]

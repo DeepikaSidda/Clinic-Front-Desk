@@ -116,6 +116,26 @@ UNATTENDED_MESSAGE = (
     "opening hours. Which would you prefer?"
 )
 
+
+def unattended_message(contact_phone: str = "") -> str:
+    """The nobody-picked-up line, naming the clinic's number when there is one.
+
+    "You can ring the clinic during opening hours" is not an instruction anyone can
+    act on without the number — the caller has reached an agent that cannot help and
+    is then told to call something it will not name. With a number configured the
+    sentence becomes usable; without one it stays exactly as it was, rather than
+    reading out a blank.
+    """
+    number = (contact_phone or "").strip()
+    if not number:
+        return UNATTENDED_MESSAGE
+    return (
+        "I'm sorry — nobody at the clinic has been able to pick up just now. "
+        "I've written your request down for them. I can take a message with your "
+        "name and number so they can call you back, or you can ring the clinic "
+        f"directly on {number} during opening hours. Which would you prefer?"
+    )
+
 #: Written into the transcript at each end of a human-held stretch of a call.
 #:
 #: While a person holds the call the model is fed silence, so it transcribes nothing —
@@ -309,12 +329,16 @@ class LiveHandoverService:
         *,
         polly: Any | None = None,
         region: str | None = None,
+        contact_phone_provider: Callable[[], str] | None = None,
         voice_id: str = DEFAULT_VOICE_ID,
         engine: str = DEFAULT_ENGINE,
     ) -> None:
         self._registry = registry
         self._polly = polly
         self._region = region
+        #: Looked up when needed rather than captured at construction, so changing the
+        #: number in the portal takes effect without a restart.
+        self._contact_phone_provider = contact_phone_provider
         self._voice_id = voice_id
         self._engine = engine
 
@@ -402,7 +426,11 @@ class LiveHandoverService:
                     # holding a phone, not watching a screen — a line of text they
                     # cannot hear leaves them in exactly the silence this exists to
                     # break.
-                    await self.speak(session_id, UNATTENDED_MESSAGE, role="agent")
+                    await self.speak(
+                        session_id,
+                        unattended_message(self._contact_phone()),
+                        role="agent",
+                    )
                     logger.info(
                         "live handover: nobody picked up %s after %.0fs",
                         session_id,
@@ -495,6 +523,21 @@ class LiveHandoverService:
             {"message_type": "human_left", "session_id": session_id}
         )
         return True
+
+    def _contact_phone(self) -> str:
+        """The clinic's number, or ``""`` when unknown for any reason.
+
+        Never raises. This runs while apologising to a caller who has already waited
+        three quarters of a minute; a store hiccup here must cost them the number, not
+        the apology.
+        """
+        if self._contact_phone_provider is None:
+            return ""
+        try:
+            return (self._contact_phone_provider() or "").strip()
+        except Exception:  # noqa: BLE001
+            logger.warning("could not read the clinic contact number", exc_info=True)
+            return ""
 
     def synthesize(self, text: str) -> bytes:
         """The doctor's words as 16 kHz mono 16-bit PCM."""

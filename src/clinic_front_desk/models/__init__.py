@@ -53,6 +53,7 @@ from .matching import (
     patient_code,
     patient_lookup_key,
 )
+from .money import CURRENCY_WORD, format_money
 from .entities import (
     MONEY_MAX,
     MONEY_MIN,
@@ -170,6 +171,8 @@ __all__ = [
     "CONFIG_SK",
     "CALLSESSION_PK",
     "ESCALATION_PK",
+    "CURRENCY_WORD",
+    "format_money",
     "clinic_kb_to_item",
     "clinic_kb_from_item",
     "provider_to_item",

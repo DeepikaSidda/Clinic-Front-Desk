@@ -121,6 +121,12 @@ class ClinicKnowledgeBase:
     hours: dict[int, DayHours | None] = field(default_factory=dict)
     services: list[ServiceConfig] = field(default_factory=list)  # 1–100 (Req 1.2)
     accepted_insurance: list[str] = field(default_factory=list)
+    #: The clinic's own number, for callers the agent cannot finish helping.
+    #:
+    #: "Ring the clinic during opening hours" is not an instruction anyone can follow
+    #: without it. Empty by default, and every place that speaks it degrades to the
+    #: wording used before this existed rather than reading out a blank.
+    contact_phone: str = ""
     providers: list[Provider] = field(default_factory=list)  # 1–50 (Req 1.3)
     #: The doctor's symptom-to-service routing. Empty by default, which restores the
     #: original behaviour exactly: a described symptom matches nothing and escalates.

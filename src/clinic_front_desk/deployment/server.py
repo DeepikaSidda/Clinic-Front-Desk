@@ -744,7 +744,11 @@ class AgentCoreServer:
         # would buy coordination nobody needs. This is what lets a doctor step
         # into a live call instead of reading about it afterwards.
         self.live_calls = LiveCallRegistry()
-        self.live_handover = LiveHandoverService(self.live_calls, region=default_region())
+        self.live_handover = LiveHandoverService(
+            self.live_calls,
+            region=default_region(),
+            contact_phone_provider=self._clinic_contact_phone,
+        )
 
         # Writes down what a human and a caller said to each other, after the call.
         # Region resolved the same way as everything else: an unresolved region cost
@@ -1287,6 +1291,18 @@ class AgentCoreServer:
                         }
                     )
             return outcome
+
+    def _clinic_contact_phone(self) -> str:
+        """The clinic's own number from the knowledge base, or ``""``.
+
+        Read on demand so editing it in the portal takes effect without a restart.
+        Only reached when a caller is about to be told nobody could pick up, so the
+        cost is one read on a rare path rather than one per call.
+        """
+        result = self.app.stores.knowledge_base.get()
+        if is_err(result) or result.value is None:
+            return ""
+        return (result.value.contact_phone or "").strip()
 
     def _start_conversation_transcription(
         self, recording_uri: str, *, finalized: Any
