@@ -57,6 +57,7 @@ import asyncio
 import base64
 import contextlib
 import hashlib
+import hmac
 import enum
 import json
 import logging
@@ -189,8 +190,17 @@ press Say.</p>
 
 <script>
 (function () {
-  var role = new URLSearchParams(location.search).get("role") || "doctor";
-  var q = function (p) { return p + (p.indexOf("?") < 0 ? "?" : "&") + "role=" + role; };
+  var params = new URLSearchParams(location.search);
+  var role = params.get("role") || "doctor";
+  // The shared secret, when the console is published on a public host. Carried
+  // through from this page's own URL so every request it makes stays authorised —
+  // miss one and that call silently 403s while the rest of the page looks fine.
+  var key = params.get("k") || "";
+  var q = function (p) {
+    var url = p + (p.indexOf("?") < 0 ? "?" : "&") + "role=" + encodeURIComponent(role);
+    if (key) url += "&k=" + encodeURIComponent(key);
+    return url;
+  };
   var open = {};
 
   function post(path, body) {
@@ -315,7 +325,7 @@ press Say.</p>
 
     var proto = location.protocol === "https:" ? "wss://" : "ws://";
     var ws = new WebSocket(proto + location.host +
-                           "/dashboard/live/" + id + "/talk?role=" + role);
+                           q("/dashboard/live/" + id + "/talk"));
     talk.ws = ws;
     talk.id = id;
 
@@ -1043,14 +1053,6 @@ class AgentCoreServer:
                 self.live_calls.record_turn(session.session_id, turn.role, turn.text)
                 # Silencing the agent's audio was not enough: its words still arrived
                 # as transcript and the caller read them on screen while talking to a
-                # person. Anything the model generates once a human is on the call is
-                # from a conversation it is no longer part of. Its own lines are
-                # dropped; the caller's are not, so the record stays complete.
-                #
-                # Still needed even though the model is now fed silence: generation
-                # already in flight at the moment of takeover has to land somewhere.
-                # Silencing the agent's audio was not enough: its words still arrived
-                # as transcript and the caller read them on screen while talking to a
                 # person. Anything the model generates once a human is on the call
                 # belongs to a conversation it is no longer part of.
                 #
@@ -1326,6 +1328,7 @@ def create_asgi_app(
     role_gate: RoleGate | None = None,
     server: AgentCoreServer | None = None,
     voice_only: bool = False,
+    console_token: str | None = None,
 ) -> Starlette:
     """Bind an :class:`AgentCoreServer` to the runtime contract's ASGI routes.
 
@@ -1845,8 +1848,29 @@ def create_asgi_app(
     # transcripts — this shows live speech, which is the most sensitive thing the
     # dashboard serves.
 
+    def _live_token_ok(request: StarletteRequest) -> bool:
+        """Check the shared secret, when one is configured.
+
+        ``?role=`` is not a security control — it is a convenience for local runs
+        behind no auth layer, and anyone holding the link can name themselves doctor.
+        That is why the console is normally not routed at all on a public host.
+
+        A configured token changes that: the console may be published, but only to
+        someone holding the secret. Compared with :func:`hmac.compare_digest` so the
+        comparison does not leak the prefix through timing.
+
+        With no token configured this is always true, leaving local runs exactly as
+        they were — the gate is opt-in, and its absence must not silently deny.
+        """
+        if not console_token:
+            return True
+        offered = request.query_params.get("k", "")
+        return hmac.compare_digest(offered, console_token)
+
     def _live_guard(request: StarletteRequest) -> str | None:
         """Return the role when it may see live calls, else ``None``."""
+        if not _live_token_ok(request):
+            return None
         role = role_of(request)
         try:
             dashboard.require_view(role, DashboardView.CALL_ACTIVITY)
@@ -1929,15 +1953,29 @@ def create_asgi_app(
         Her audio goes to the caller as ``agent_audio`` — the frame their browser
         already plays — so nothing has to change on the patient side.
         """
-        await websocket.accept()
         session_id = websocket.path_params["session_id"]
 
+        # Authorise *before* accepting. This socket streams a live caller's voice out
+        # and lets whoever holds it speak to them as the clinic, so an unauthorised
+        # client should not get a completed handshake at all.
+        #
+        # It also has to honour the shared secret when the console is published on a
+        # public host. It did not: it ran its own role check and never consulted the
+        # token, which left the single most sensitive endpoint here wide open on
+        # exactly the deployment the token exists to protect.
         role = websocket.query_params.get("role")
-        try:
-            dashboard.require_view(role, DashboardView.CALL_ACTIVITY)
-        except DashboardHttpError:
+        offered = websocket.query_params.get("k", "")
+        authorised = not console_token or hmac.compare_digest(offered, console_token)
+        if authorised:
+            try:
+                dashboard.require_view(role, DashboardView.CALL_ACTIVITY)
+            except DashboardHttpError:
+                authorised = False
+        if not authorised:
             await websocket.close(code=1008)
             return
+
+        await websocket.accept()
 
         async def to_doctor(message: Mapping[str, Any]) -> None:
             await websocket.send_json(dict(message))
@@ -2089,9 +2127,55 @@ def create_asgi_app(
         Route(STATIC_PREFIX + "{asset}", static_route, methods=["GET"]),
     ]
     if voice_only:
-        asgi_app = StarletteApp(routes=voice_routes)
+        routes: list[Any] = list(voice_routes)
+        if console_token:
+            # Publishing the live console, and *only* the live console.
+            #
+            # Needed because live calls are tracked in memory, per process: a caller on
+            # the public URL is registered inside this container, so a console running
+            # anywhere else is looking at an empty list no matter what it is allowed to
+            # see. To take a real call, the console has to be served by the process
+            # holding it.
+            #
+            # Deliberately not the whole dashboard. Nothing here reads stored records —
+            # no patient list, no calendar, no documents, no onboarding — so the blast
+            # radius is calls in progress rather than the clinic's history. Those
+            # remain unrouted even with a valid token.
+            routes += [
+                Route("/live", live_console_route, methods=["GET"]),
+                Route("/dashboard/live", live_calls_route, methods=["GET"]),
+                Route(
+                    "/dashboard/live/{session_id}/transcript",
+                    live_transcript_route,
+                    methods=["GET"],
+                ),
+                Route(
+                    "/dashboard/live/{session_id}/takeover",
+                    live_takeover_route,
+                    methods=["POST"],
+                ),
+                Route(
+                    "/dashboard/live/{session_id}/release",
+                    live_release_route,
+                    methods=["POST"],
+                ),
+                Route(
+                    "/dashboard/live/{session_id}/say",
+                    live_say_route,
+                    methods=["POST"],
+                ),
+                WebSocketRoute(
+                    "/dashboard/live/{session_id}/talk", live_doctor_ws_route
+                ),
+            ]
+            logger.info(
+                "serving the voice agent plus the token-gated live console; "
+                "patient records, calendar and documents are not mounted"
+            )
+        else:
+            logger.info("serving the voice agent only; dashboard routes are not mounted")
+        asgi_app = StarletteApp(routes=routes)
         asgi_app.state.server = runtime_server
-        logger.info("serving the voice agent only; dashboard routes are not mounted")
         return asgi_app
 
     asgi_app = StarletteApp(
@@ -2263,6 +2347,17 @@ def build_asgi_app_from_env(env: Mapping[str, str] | None = None) -> Starlette:
     on a public URL anyone with the link would be the doctor.
     """
     source = env if env is not None else os.environ
+    # Publishes the live-call console on a voice-only host, to whoever holds this
+    # secret. Short tokens are rejected rather than quietly accepted: this guards live
+    # patient speech and the ability to speak as the clinic, and a four-character
+    # secret on a public URL is barely a gate at all.
+    console_token = (source.get("CLINIC_CONSOLE_TOKEN") or "").strip()
+    if console_token and len(console_token) < 24:
+        raise ValueError(
+            "CLINIC_CONSOLE_TOKEN must be at least 24 characters: it is the only "
+            "thing standing between a public URL and a live patient call. Generate "
+            "one with: python -c \"import secrets; print(secrets.token_urlsafe(32))\""
+        )
     voice_only = source.get("CLINIC_VOICE_ONLY", "").strip().lower() in {
         "1",
         "true",
@@ -2276,10 +2371,15 @@ def build_asgi_app_from_env(env: Mapping[str, str] | None = None) -> Starlette:
             "CLINIC_BACKEND=memory: serving with in-memory stores; "
             "all data is lost when the container stops"
         )
-        return create_asgi_app(build_memory_application(), voice_only=voice_only)
+        return create_asgi_app(
+            build_memory_application(),
+            voice_only=voice_only,
+            console_token=console_token,
+        )
     return create_asgi_app(
         build_runtime_application(runtime_config_from_env(source)),
         voice_only=voice_only,
+        console_token=console_token,
     )
 
 
