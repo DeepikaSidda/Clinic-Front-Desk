@@ -27,9 +27,11 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import base64
 import json
 import time
 from dataclasses import dataclass, field
+from typing import Any
 
 import websockets
 
@@ -56,6 +58,41 @@ class CallResult:
     @property
     def ok(self) -> bool:
         return self.error is None and self.session_id is not None
+
+
+#: One 32 ms frame of 16 kHz mono silence, base64'd once rather than per send.
+_SILENT_FRAME = base64.b64encode(bytes(1024)).decode("ascii")
+
+
+async def hold_the_line(socket: Any, seconds: float) -> None:
+    """Stay on the call the way a browser does: streaming, not silent on the wire.
+
+    This used to be a bare ``asyncio.sleep``, which models something no real client
+    does. A browser's AudioWorklet posts a frame roughly every 32 ms for the whole
+    call whether or not anyone is speaking, and the server now relies on that: a
+    socket with no frames for a minute is treated as dead and hung up. A sleeping
+    test would have started failing above ``--hold 60`` and looked like a
+    concurrency limit rather than a test that stopped resembling a caller.
+
+    Sending silence also makes the load honest, since per-frame work on the server —
+    decode, record, relay — is real work that a sleeping socket never asks for.
+    """
+    frame = json.dumps(
+        {
+            "message_type": "user_audio",
+            "audio": _SILENT_FRAME,
+            "format": "pcm",
+            "sample_rate": 16000,
+            "channels": 1,
+        }
+    )
+    deadline = time.perf_counter() + seconds
+    while time.perf_counter() < deadline:
+        try:
+            await socket.send(frame)
+        except Exception:  # noqa: BLE001 - the hang-up below reports it
+            return
+        await asyncio.sleep(0.032)
 
 
 async def one_call(index: int, url: str, hold: float, timeout: float) -> CallResult:
@@ -90,7 +127,7 @@ async def one_call(index: int, url: str, hold: float, timeout: float) -> CallRes
             if result.session_id is None:
                 result.error = "never received session_started"
             else:
-                await asyncio.sleep(hold)
+                await hold_the_line(socket, hold)
 
             try:
                 await socket.send(json.dumps({"message_type": "end_session"}))
