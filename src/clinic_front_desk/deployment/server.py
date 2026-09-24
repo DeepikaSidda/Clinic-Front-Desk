@@ -1019,17 +1019,15 @@ class AgentCoreServer:
             recorder = CallRecorder()
             record_audio = self.app.stores.recordings is not None
 
-            live = self.live_calls.register(session.session_id, send)
+            def _held_by_human() -> bool:
+                """Is a person on this call right now?
 
-            # Comes back to the caller if nobody picks up. Observed on a real call:
-            # the agent said it was connecting someone, the call was flagged on the
-            # console, nobody was watching, and the caller sat in silence — because
-            # the agent had stopped talking believing it had handed over. Started for
-            # every call and cancelled on hang-up; it does nothing at all unless a
-            # human is actually asked for.
-            unattended_watch = asyncio.create_task(
-                self.live_handover.watch_unattended(session.session_id)
-            )
+                Looked up rather than closed over a ``LiveCall`` handle, so the
+                registration itself can happen later — inside the block whose
+                ``finally`` removes it. See the comment at the registration below.
+                """
+                call = self.live_calls.get(session.session_id)
+                return call is not None and call.taken_over
 
             # So the doctor's console can show *which* call is waiting rather than
             # listing every call equally. Set on the live session's toolset, which
@@ -1054,7 +1052,7 @@ class AgentCoreServer:
                 # the caller simply never hears two voices at once. Deliberately not
                 # the barge-in suppression flag, which clears on the next model
                 # response; a handover has to hold until the human is finished.
-                if live.taken_over:
+                if _held_by_human():
                     return
                 await send(
                     {
@@ -1085,7 +1083,7 @@ class AgentCoreServer:
                 # Still needed even though the model is fed silence while held:
                 # generation already in flight at the moment of takeover has to land
                 # somewhere.
-                if live.taken_over and turn.role not in CALLER_ROLES:
+                if _held_by_human() and turn.role not in CALLER_ROLES:
                     return
                 await send(
                     {
@@ -1109,7 +1107,7 @@ class AgentCoreServer:
                 # unguarded this put "interrupted — playback stopped" on the caller's
                 # screen every time they spoke to the doctor, which reads as the call
                 # malfunctioning at the exact moment it is working as intended.
-                if live.taken_over:
+                if _held_by_human():
                     return
                 await send(
                     {
@@ -1145,6 +1143,29 @@ class AgentCoreServer:
                         **card,
                     }
                 )
+
+            # Register the call here, immediately before the try whose finally
+            # removes it — not earlier.
+            #
+            # It used to be registered well above, before session.start(), the
+            # session_started send, and a clinic-card build that reads DynamoDB and
+            # S3. Anything that stalled or raised across those awaits leaked the
+            # registration permanently: the finally that unregisters had not been
+            # entered yet, so nothing could ever take it out. That is what put two
+            # phantom "in progress" calls on the doctor's console for twenty
+            # minutes, showing "Nothing said yet" and offering a dead line to take
+            # over. Registering last makes the window empty by construction.
+            self.live_calls.register(session.session_id, send)
+
+            # Comes back to the caller if nobody picks up. Observed on a real call:
+            # the agent said it was connecting someone, the call was flagged on the
+            # console, nobody was watching, and the caller sat in silence — because
+            # the agent had stopped talking believing it had handed over. Started for
+            # every call and cancelled on hang-up; it does nothing at all unless a
+            # human is actually asked for.
+            unattended_watch = asyncio.create_task(
+                self.live_handover.watch_unattended(session.session_id)
+            )
 
             model_events = asyncio.create_task(session.run())
             client_pump = asyncio.create_task(
