@@ -71,8 +71,16 @@ from clinic_front_desk.dashboard.decisions import DecisionActionService
 from clinic_front_desk.dashboard.role_gate import DashboardView, RoleGate
 from clinic_front_desk.dashboard.shell import render_dashboard_shell
 from clinic_front_desk.data_layer.events import ChangeEvent
-from clinic_front_desk.models import CallOutcome, is_err
-from clinic_front_desk.handover.live import LiveCallRegistry, LiveHandoverService
+from clinic_front_desk.models import CallOutcome, PatientRef, is_err
+from clinic_front_desk.handover.live import (
+    LiveCallRegistry,
+    LiveHandoverService,
+    default_region,
+)
+from clinic_front_desk.voice.conversation_transcript import (
+    ConversationTranscriber,
+    merge_transcript,
+)
 from clinic_front_desk.voice.clinic_briefing import build_clinic_card
 from clinic_front_desk.voice.recording import CallRecorder
 
@@ -736,7 +744,15 @@ class AgentCoreServer:
         # would buy coordination nobody needs. This is what lets a doctor step
         # into a live call instead of reading about it afterwards.
         self.live_calls = LiveCallRegistry()
-        self.live_handover = LiveHandoverService(self.live_calls)
+        self.live_handover = LiveHandoverService(self.live_calls, region=default_region())
+
+        # Writes down what a human and a caller said to each other, after the call.
+        # Region resolved the same way as everything else: an unresolved region cost
+        # this system its voice once already.
+        self.conversation_transcriber = ConversationTranscriber(region=default_region())
+        #: Strong references to in-flight transcription jobs. A bare create_task can
+        #: be garbage-collected mid-flight, dropping the transcript silently.
+        self._transcription_tasks: set[asyncio.Task[None]] = set()
         self._today = today
         self._run_analysis = build_scheduled_intelligence_entrypoint(app)
         self._decision_actions = DecisionActionService(
@@ -1206,6 +1222,10 @@ class AgentCoreServer:
                 # the log at best.
                 unattended_watch.cancel()
 
+                # Read this before unregistering, which discards the call.
+                held = self.live_calls.get(session.session_id)
+                was_handed_over = held is not None and held.ever_taken_over
+
                 # Drop it from the live registry first, so the doctor's console can
                 # never offer to take over a call whose socket has already gone.
                 self.live_calls.unregister(session.session_id)
@@ -1242,6 +1262,22 @@ class AgentCoreServer:
                 )
                 outcome = None if is_err(result) else result.value.outcome
 
+                # Write down what the human and the caller actually said.
+                #
+                # Only for calls a person took over: while they hold the call the
+                # model is fed silence, so it transcribes nothing and that stretch is
+                # blank in the written record. Every other call already has a
+                # transcript, and transcribing those would pay Transcribe to
+                # re-derive it.
+                #
+                # Started and deliberately not awaited — a job takes tens of seconds
+                # and the caller has already hung up. The call record is complete
+                # before this runs; the transcript is an addition to it.
+                if was_handed_over and recording_uri and not is_err(result):
+                    self._start_conversation_transcription(
+                        recording_uri, finalized=result.value
+                    )
+
                 with contextlib.suppress(Exception, asyncio.CancelledError):
                     await send(
                         {
@@ -1251,6 +1287,60 @@ class AgentCoreServer:
                         }
                     )
             return outcome
+
+    def _start_conversation_transcription(
+        self, recording_uri: str, *, finalized: Any
+    ) -> None:
+        """Transcribe a human-held call's recording in the background.
+
+        Takes the already-finalised :class:`CallSession` rather than re-reading it.
+        Two reasons: ``CallSessionStore`` has no read-by-id, and re-finalising needs
+        the same outcome and patient reference it was closed with — passing the record
+        along cannot drift from what was just written, whereas a second read could.
+
+        Fire-and-forget, with the task held in a set: a bare ``create_task`` can be
+        garbage-collected mid-flight, which would silently drop the transcript for
+        exactly the calls that need one.
+        """
+        if not recording_uri.startswith("s3://"):
+            # The in-memory store hands back ``memory://``; there is nothing for
+            # Transcribe to read and nothing worth logging as a failure.
+            return
+
+        session_id = str(finalized.id)
+        outcome = finalized.outcome or CallOutcome.INTERRUPTED
+        patient_ref = finalized.patient_ref or PatientRef()
+        existing = finalized.transcript
+
+        async def work() -> None:
+            try:
+                text = await asyncio.to_thread(
+                    self.conversation_transcriber.transcribe,
+                    session_id,
+                    recording_uri,
+                )
+                merged = merge_transcript(existing, text)
+                if not text or merged == existing:
+                    return
+                await asyncio.to_thread(
+                    lambda: self.app.stores.call_sessions.finalize(
+                        session_id,
+                        outcome,
+                        patient_ref,
+                        transcript=merged,
+                    )
+                )
+                logger.info(
+                    "transcribed the human-held part of call %s (%d chars)",
+                    session_id,
+                    len(text),
+                )
+            except Exception:  # noqa: BLE001 - never escape a background task
+                logger.exception("conversation transcription failed for %s", session_id)
+
+        task = asyncio.create_task(work())
+        self._transcription_tasks.add(task)
+        task.add_done_callback(self._transcription_tasks.discard)
 
     async def _store_recording(
         self, session: Any, recorder: CallRecorder

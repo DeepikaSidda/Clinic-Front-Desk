@@ -86,16 +86,24 @@
         "nobody-picked-up apology were silently doing nothing a caller could hear -",
         "the dead air the apology exists to prevent. Found in the log as three",
         "'Polly synthesis failed' warnings.",
-        "Transcribe turns the doctor's spoken words into transcript turns while she",
-        "holds the call, so the written record is not blank for the part a human",
-        "actually handled.",
-        "Neither action supports resource-level permissions, hence Resource: *.",
-        "Both are scoped to synthesis and streaming recognition only: no voice",
-        "management, no custom vocabularies, no batch jobs reading S3."
+        "Transcribe writes down what the caller and the human said to each other,",
+        "after the call, from the stereo recording. Batch rather than streaming",
+        "because the streaming SDK pins awscrt~=0.26.1 and Nova Sonic's",
+        "bidirectional stream runs on 0.36.2 - downgrading the transport the whole",
+        "voice agent depends on, to add a transcript, is the wrong trade.",
+        "Reading the recording itself is covered by the existing s3:GetObject on",
+        "call-recordings/*, so no wider S3 access is needed.",
+        "Neither service supports resource-level permissions for these actions,",
+        "hence Resource: *. Scoped to synthesis and reading back one's own jobs:",
+        "no voice management, no custom vocabularies, no vocabulary filters."
       ],
       "Sid": "HandoverVoice",
       "Effect": "Allow",
-      "Action": ["polly:SynthesizeSpeech", "transcribe:StartStreamTranscription"],
+      "Action": [
+        "polly:SynthesizeSpeech",
+        "transcribe:StartTranscriptionJob",
+        "transcribe:GetTranscriptionJob"
+      ],
       "Resource": "*"
     },
     {

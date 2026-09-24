@@ -160,6 +160,14 @@ class LiveCall:
     reason: str = ""
     #: True once a human is on the call. While true the agent is silent.
     taken_over: bool = False
+    #: True if a human was *ever* on this call, and stays true after they hand back.
+    #:
+    #: Separate from :attr:`taken_over` because that one is the live state and clears
+    #: on release. This is what decides, at the end of the call, whether the recording
+    #: is worth transcribing: only a stretch a human handled is missing from the
+    #: written record, and transcribing every call would spend money to re-derive a
+    #: transcript the agent already produced.
+    ever_taken_over: bool = False
     #: Who the caller is, as far as the call has established.
     patient_name: str = ""
     callback_phone: str = ""
@@ -276,6 +284,7 @@ class LiveCallRegistry:
             return None
         call.doctor_send = send
         call.taken_over = True
+        call.ever_taken_over = True
         return call
 
     def detach_doctor(self, session_id: str) -> None:
@@ -330,6 +339,7 @@ class LiveHandoverService:
         if call is None:
             return False
         call.taken_over = True
+        call.ever_taken_over = True
         # Mark the boundary in the transcript. With a human on the call the model is
         # fed silence, so it stops transcribing too — the written record simply stops
         # mid-conversation. The audio recording still has everything, but a reader of
