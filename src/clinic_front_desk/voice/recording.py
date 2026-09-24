@@ -164,7 +164,16 @@ class CallRecorder:
             return
         self._turns.append(
             TranscriptTurn(
-                role="agent" if role == "assistant" else "patient",
+                # Case-insensitive, and "agent" accepted as well as "assistant".
+                # An exact match against the lower-case spelling is what made every
+                # stored transcript one-sided: Nova Sonic says "ASSISTANT", which fell
+                # through to the patient branch, so the agent's own words were either
+                # mislabelled or lost.
+                role=(
+                    "agent"
+                    if str(role or "").strip().lower() in ("assistant", "agent")
+                    else "patient"
+                ),
                 text=cleaned,
                 offset_seconds=self._offset(),
             )

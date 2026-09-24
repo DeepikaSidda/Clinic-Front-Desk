@@ -57,10 +57,13 @@ or coroutine functions; coroutine results are awaited.
 from __future__ import annotations
 
 import inspect
+import logging
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any, Literal, Protocol, Union, runtime_checkable
+
+logger = logging.getLogger(__name__)
 
 __all__ = [
     # normalized events
@@ -784,7 +787,19 @@ class NovaSonicVoiceStream:
             # Only finalized transcripts are surfaced as interpreted turns.
             if not event.get("is_final"):
                 return None
-            role = event.get("role", "user")
+            # Compared case-insensitively. Nova Sonic labels roles in upper case
+            # ("ASSISTANT"/"USER"), so an exact match against "assistant" quietly
+            # relabelled every agent turn as the patient's — and since the recorder
+            # maps anything that is not "assistant" to "patient", the stored
+            # transcript of every call came out one-sided.
+            role = str(event.get("role") or "user").strip().lower()
+            if role not in ("assistant", "user"):
+                # Logged rather than assumed: a role this code does not recognise is
+                # the exact shape of the bug above, and it should be visible.
+                logger.warning(
+                    "unrecognised transcript role %r, treating it as the caller",
+                    event.get("role"),
+                )
             return InterpretedTurn(
                 text=event.get("text", ""),
                 role="assistant" if role == "assistant" else "user",
