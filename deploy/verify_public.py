@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import contextlib
 import json
 import os
 import pathlib
@@ -156,7 +157,19 @@ def websocket_upgrade(path: str = "/ws", timeout: int = 15) -> tuple[bool, str]:
             with context.wrap_socket(raw, server_hostname=HOST) as tls:
                 tls.sendall(request.encode())
                 data = tls.recv(4096).decode("utf-8", "replace")
-        first = data.split("\r\n", 1)[0]
+                first = data.split("\r\n", 1)[0]
+                if "101" in first:
+                    # Hang up properly. A successful upgrade on /ws starts a real
+                    # call: a Nova Sonic stream opens and the call is registered on
+                    # the doctor's console. Dropping the TCP connection here left
+                    # both behind — two phantom "in progress" calls with nothing
+                    # said sat on the console for twenty minutes after a deploy
+                    # check, and the model stream stayed open and billing.
+                    #
+                    # A close frame is four bytes: FIN+opcode 0x8, then a masked
+                    # zero-length payload. Masked because a client frame must be.
+                    with contextlib.suppress(OSError):
+                        tls.sendall(b"\x88\x80\x00\x00\x00\x00")
         return "101" in first, first
     except Exception as exc:  # noqa: BLE001
         return False, f"{type(exc).__name__}: {exc}"

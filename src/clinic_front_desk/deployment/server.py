@@ -602,6 +602,17 @@ _LIVE_CONSOLE_BUILD = hashlib.sha256(_LIVE_CONSOLE_HTML.encode("utf-8")).hexdige
 
 _LIVE_CONSOLE_HTML = _LIVE_CONSOLE_HTML.replace("__BUILD__", _LIVE_CONSOLE_BUILD)
 
+#: How long a caller's socket may go quiet before it is treated as gone.
+#:
+#: Not a conversational timeout — the caller may think for as long as they like. This
+#: is about frames on the wire. The client's AudioWorklet posts one roughly every
+#: 32 ms for the whole call, so a full minute of nothing is a dead connection, not a
+#: pause. Without this bound a dropped socket leaves a call listed as in progress
+#: forever, with a Nova Sonic stream open behind it.
+CALLER_IDLE_TIMEOUT_SECONDS = float(
+    os.environ.get("CLINIC_CALLER_IDLE_TIMEOUT_SECONDS") or 60.0
+)
+
 #: Never cache this, anywhere, by anyone.
 #:
 #: For the live console and its polling: everything here describes a call happening
@@ -1258,7 +1269,31 @@ class AgentCoreServer:
         binary WebSocket frame works without the client doing the encoding.
         """
         while True:
-            message = await receive()
+            # Bounded, because a socket can die without saying so.
+            #
+            # A caller who shuts a laptop, loses signal, or is probed by a tool that
+            # drops the TCP connection without a close frame never produces a
+            # disconnect message. This await then blocks forever: the call stays on
+            # the doctor's console as "in progress" with nothing said, offering her a
+            # dead line to take over, and the Nova Sonic stream behind it stays open
+            # and billing. Two such calls sat there for twenty minutes before this
+            # was noticed.
+            #
+            # The bound is safe because the client streams continuously: its
+            # AudioWorklet posts a frame roughly every 32 ms whether or not anyone is
+            # speaking, so silence on the wire means the socket is gone, not that the
+            # caller is thinking.
+            try:
+                message = await asyncio.wait_for(
+                    receive(), timeout=CALLER_IDLE_TIMEOUT_SECONDS
+                )
+            except (asyncio.TimeoutError, TimeoutError):
+                logger.info(
+                    "voice call %s: no frames for %.0fs, treating the socket as gone",
+                    session.session_id,
+                    CALLER_IDLE_TIMEOUT_SECONDS,
+                )
+                return
             if message is None:
                 return
             message_type = message.get("message_type") or message.get("type")
@@ -1267,9 +1302,6 @@ class AgentCoreServer:
             if message_type == "user_text":
                 text = message.get("text")
                 if isinstance(text, str) and text:
-                    # Same rule as audio: with a human on the call the model is not a
-                    # participant, so it is not given the turn either. Recorded and
-                    # relayed to the doctor, just not answered by the agent.
                     # Same rule as audio: with a human on the call the model is not a
                     # participant, so it is not given the turn either. Still recorded,
                     # just not answered by the agent.
