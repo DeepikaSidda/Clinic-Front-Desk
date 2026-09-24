@@ -784,18 +784,42 @@ class NovaSonicVoiceStream:
         if etype == "bidi_response_start":
             return ResponseStarted(response_id=event.get("response_id"))
         if etype == "bidi_transcript_stream":
-            # Only finalized transcripts are surfaced as interpreted turns.
-            if not event.get("is_final"):
-                return None
-            # Compared case-insensitively. Nova Sonic labels roles in upper case
-            # ("ASSISTANT"/"USER"), so an exact match against "assistant" quietly
-            # relabelled every agent turn as the patient's — and since the recorder
-            # maps anything that is not "assistant" to "patient", the stored
-            # transcript of every call came out one-sided.
+            # Role and finality only, never the text: this runs on a live patient call
+            # and a transcript line is clinical content. Low volume, so it is at info
+            # rather than debug — it is the only way to see which turns the model
+            # actually finalises, which is what made a one-sided transcript so hard
+            # to diagnose.
+            # Role and finality only, never the text: this runs on a live patient call
+            # and a transcript line is clinical content.
+            logger.debug(
+                "transcript event: role=%r is_final=%r chars=%d",
+                event.get("role"),
+                event.get("is_final"),
+                len(str(event.get("text") or "")),
+            )
             role = str(event.get("role") or "user").strip().lower()
+
+            # Finality is required of the caller and **not** of the assistant.
+            #
+            # For the caller it matters: partial recognition changes word by word as
+            # they speak, and recording it would fill the transcript with half-heard
+            # guesses. For the assistant it is fatal. Observed on the deployed model:
+            #
+            #     role='user'      is_final=True
+            #     role='assistant' is_final=False
+            #     role='assistant' is_final=False
+            #
+            # Nova Sonic never marks its own output final, so requiring finality
+            # dropped every agent turn and left each stored transcript one-sided —
+            # the doctor read the questions and none of the answers. Nothing errored;
+            # the transcript simply looked like a quiet call.
+            if role != "assistant" and not event.get("is_final"):
+                return None
+            # Compared case-insensitively, since a role spelled "ASSISTANT" would
+            # otherwise fall through to the caller's branch.
             if role not in ("assistant", "user"):
-                # Logged rather than assumed: a role this code does not recognise is
-                # the exact shape of the bug above, and it should be visible.
+                # Logged rather than assumed: an unrecognised role is how the agent
+                # side went missing in the first place, so it should be visible.
                 logger.warning(
                     "unrecognised transcript role %r, treating it as the caller",
                     event.get("role"),

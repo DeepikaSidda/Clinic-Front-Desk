@@ -63,9 +63,15 @@ def test_an_unknown_role_falls_back_to_the_caller() -> None:
     assert event.role == "user"
 
 
-def test_partial_transcripts_are_still_ignored() -> None:
-    """Only finalised text belongs in a record."""
-    assert _translate("ASSISTANT", final=False) is None
+def test_a_partial_caller_turn_is_ignored_but_a_partial_agent_turn_is_not() -> None:
+    """Finality is required of the caller and not of the agent.
+
+    Written the other way round first, on the assumption that partial means partial
+    for everyone. The deployed model disagrees: it never marks its own output final,
+    so applying the rule evenly is what deleted the agent's half of every transcript.
+    """
+    assert _translate("USER", final=False) is None
+    assert _translate("ASSISTANT", final=False) is not None
 
 
 # -- the recorder -----------------------------------------------------------
@@ -111,3 +117,80 @@ def test_the_agent_is_not_silently_relabelled_as_the_patient() -> None:
     roles = [turn.role for turn in recorder.turns]
 
     assert roles == ["patient", "agent"], roles
+
+
+# -- the assistant's turns arrive unfinalised, so they can repeat ------------
+
+
+def test_an_unfinalised_assistant_turn_is_still_surfaced() -> None:
+    """The actual cause, and the one a guess got wrong first.
+
+    Observed on the deployed model: the caller's turn arrives ``is_final=True`` and
+    the assistant's arrives ``is_final=False``, every time. Requiring finality of both
+    dropped the entire agent side.
+    """
+    event = _translate("assistant", final=False)
+
+    assert event is not None
+    assert event.role == "assistant"
+
+
+def test_an_unfinalised_caller_turn_is_still_ignored() -> None:
+    """Partial recognition of the caller changes word by word as they speak."""
+    assert _translate("user", final=False) is None
+
+
+def test_a_repeated_agent_line_is_not_printed_twice() -> None:
+    recorder = CallRecorder()
+    recorder.add_turn("assistant", "I have Monday at nine.")
+    recorder.add_turn("assistant", "I have Monday at nine.")
+
+    assert [turn.text for turn in recorder.turns] == ["I have Monday at nine."]
+
+
+def test_a_line_that_grew_replaces_the_fragment() -> None:
+    """Unfinalised text can be delivered as it is produced."""
+    recorder = CallRecorder()
+    recorder.add_turn("assistant", "I have Monday")
+    recorder.add_turn("assistant", "I have Monday at nine.")
+
+    assert [turn.text for turn in recorder.turns] == ["I have Monday at nine."]
+
+
+def test_a_shorter_repeat_does_not_truncate_the_line() -> None:
+    recorder = CallRecorder()
+    recorder.add_turn("assistant", "I have Monday at nine.")
+    recorder.add_turn("assistant", "I have Monday")
+
+    assert [turn.text for turn in recorder.turns] == ["I have Monday at nine."]
+
+
+def test_two_genuinely_different_lines_are_both_kept() -> None:
+    """Collapsing must not swallow a second thing actually said."""
+    recorder = CallRecorder()
+    recorder.add_turn("assistant", "I have Monday at nine.")
+    recorder.add_turn("assistant", "Shall I book it?")
+
+    assert len(recorder.turns) == 2
+
+
+def test_the_same_words_from_different_speakers_are_both_kept() -> None:
+    """Collapsing applies within one speaker, not across the two."""
+    recorder = CallRecorder()
+    recorder.add_turn("user", "Monday at nine")
+    recorder.add_turn("assistant", "Monday at nine")
+
+    assert [turn.role for turn in recorder.turns] == ["patient", "agent"]
+
+
+def test_a_caller_repeating_themselves_is_not_collapsed() -> None:
+    """Only the agent's turns repeat for technical reasons.
+
+    The caller's arrive finalised, so "yes" then "yes" is them actually saying it
+    twice — a fact about the call. Collapsing that would quietly edit the record.
+    """
+    recorder = CallRecorder()
+    recorder.add_turn("user", "yes")
+    recorder.add_turn("user", "yes")
+
+    assert [turn.text for turn in recorder.turns] == ["yes", "yes"]

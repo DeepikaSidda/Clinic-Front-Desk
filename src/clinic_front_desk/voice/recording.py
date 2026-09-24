@@ -31,7 +31,7 @@ from __future__ import annotations
 
 import io
 import wave
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 
 #: Nova Sonic's output rate, and the rendering rate for the whole recording.
@@ -158,22 +158,48 @@ class CallRecorder:
         track.append(_Chunk(offset_seconds=offset, samples=samples))
 
     def add_turn(self, role: str, text: str) -> None:
-        """Record a finalized transcript turn."""
+        """Record a transcript turn, collapsing a line that merely grew.
+
+        The agent's turns arrive **unfinalised** — Nova Sonic never marks its own
+        output final — so the same sentence can be delivered more than once as it is
+        produced. Appending blindly would print it twice, or print a fragment and then
+        the whole thing. So a turn that extends the previous one from the same speaker
+        replaces it, and an exact repeat is dropped.
+        """
         cleaned = (text or "").strip()
         if not cleaned:
             return
+
+        # Case-insensitive, and "agent" accepted as well as "assistant": a role
+        # spelled "ASSISTANT" would otherwise be filed as the patient's.
+        speaker = (
+            "agent"
+            if str(role or "").strip().lower() in ("assistant", "agent")
+            else "patient"
+        )
+
+        # Collapsing applies to the agent only, deliberately.
+        #
+        # Its turns arrive unfinalised and can repeat as they are produced. The
+        # caller's arrive finalised, and a caller may genuinely say the same word
+        # twice — "yes", then "yes" — which is information about the call, not noise.
+        # An earlier version collapsed both and silently merged real repetition.
+        if speaker == "agent" and self._turns:
+            previous = self._turns[-1]
+            if previous.role == speaker:
+                if cleaned == previous.text:
+                    return
+                # One text containing the other is the same utterance twice, not two
+                # things said. Keep the longer, at the earlier timestamp.
+                if cleaned.startswith(previous.text):
+                    self._turns[-1] = replace(previous, text=cleaned)
+                    return
+                if previous.text.startswith(cleaned):
+                    return
+
         self._turns.append(
             TranscriptTurn(
-                # Case-insensitive, and "agent" accepted as well as "assistant".
-                # An exact match against the lower-case spelling is what made every
-                # stored transcript one-sided: Nova Sonic says "ASSISTANT", which fell
-                # through to the patient branch, so the agent's own words were either
-                # mislabelled or lost.
-                role=(
-                    "agent"
-                    if str(role or "").strip().lower() in ("assistant", "agent")
-                    else "patient"
-                ),
+                role=speaker,
                 text=cleaned,
                 offset_seconds=self._offset(),
             )
