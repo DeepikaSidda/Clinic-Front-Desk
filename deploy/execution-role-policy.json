@@ -78,6 +78,28 @@
     },
     {
       "SidComment": [
+        "The human handover's voice, in both directions.",
+        "Polly speaks what the doctor types to the caller, and speaks the line that",
+        "tells a caller nobody was able to pick up. This was missing, and the",
+        "failure was invisible: synthesis errors are caught so a dead voice can",
+        "never drop a call, so on the deployed instance the typed handover and the",
+        "nobody-picked-up apology were silently doing nothing a caller could hear -",
+        "the dead air the apology exists to prevent. Found in the log as three",
+        "'Polly synthesis failed' warnings.",
+        "Transcribe turns the doctor's spoken words into transcript turns while she",
+        "holds the call, so the written record is not blank for the part a human",
+        "actually handled.",
+        "Neither action supports resource-level permissions, hence Resource: *.",
+        "Both are scoped to synthesis and streaming recognition only: no voice",
+        "management, no custom vocabularies, no batch jobs reading S3."
+      ],
+      "Sid": "HandoverVoice",
+      "Effect": "Allow",
+      "Action": ["polly:SynthesizeSpeech", "transcribe:StartStreamTranscription"],
+      "Resource": "*"
+    },
+    {
+      "SidComment": [
         "Two prefixes, both in CLINIC_RECORDINGS_BUCKET / CLINIC_DOCUMENTS_BUCKET.",
         "call-recordings/ is call audio, written only when CLINIC_RECORDINGS_BUCKET",
         "is set. clinic-documents/ holds the clinic briefing the agent reads at the",
