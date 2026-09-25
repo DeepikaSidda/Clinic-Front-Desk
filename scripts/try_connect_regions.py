@@ -77,7 +77,17 @@ def probe(region: str, *, create: bool) -> tuple[bool, str]:
             message = str(error.get("Message", ""))
             if "AISPL" in message:
                 return False, f"{code}: AISPL account-level block"
-            return True, f"account NOT the blocker ({code}: {message[:60]})"
+            # NOT a pass. The assumption above — that AWS reports an account block
+            # before it looks at the alias — is false. With an invalid alias every
+            # region answered "Invalid Input. Please check instance alias." and this
+            # printed "account NOT the blocker" for all eight; running --create with a
+            # real alias then returned the AISPL error in every one of them. The alias
+            # is validated first, so this probe cannot see the account restriction at
+            # all, and reporting a pass here is worse than reporting nothing.
+            return False, (
+                f"INCONCLUSIVE ({code}: {message[:50]}) — "
+                "alias rejected before the account was checked; use --create to know"
+            )
         except botocore.exceptions.ParamValidationError as exc:
             return False, f"client-side validation: {str(exc)[:70]}"
 
@@ -102,6 +112,13 @@ def main() -> None:
     args = parser.parse_args()
 
     print(f"  alias {ALIAS!r}   create={args.create}\n")
+    if not args.create:
+        print(
+            "  NOTE: without --create this cannot tell you whether the account is\n"
+            "        allowed. AWS validates the instance alias before the account\n"
+            "        type, so a probe with a deliberately invalid alias never reaches\n"
+            "        the account check. Only --create gives a real answer.\n"
+        )
     winners: list[str] = []
     for region in REGIONS:
         usable, detail = probe(region, create=args.create)
