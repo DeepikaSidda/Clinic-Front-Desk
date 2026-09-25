@@ -58,6 +58,8 @@ import base64
 import contextlib
 import hashlib
 import hmac
+import urllib.parse
+from functools import partial
 import enum
 import json
 import logging
@@ -1806,6 +1808,49 @@ def create_asgi_app(
             )
         )
 
+    async def appointment_cancel_route(request: StarletteRequest) -> Response:
+        """``POST /slots/cancel`` — cancel a booking and text the patient."""
+        role = role_of(request)
+        form = await request.form()
+        raw = form.get("appointment_id")
+        appointment_id = raw if isinstance(raw, str) else ""
+        raw_day = form.get("day")
+        day = raw_day if isinstance(raw_day, str) else ""
+        raw_provider = form.get("provider_id")
+        provider_id = raw_provider if isinstance(raw_provider, str) else ""
+
+        try:
+            raw_slot = form.get("slot_id")
+            message, error = await asyncio.to_thread(
+                partial(
+                    dashboard.cancel_appointment,
+                    role,
+                    appointment_id=appointment_id,
+                    slot_id=raw_slot if isinstance(raw_slot, str) else "",
+                    day=day,
+                    provider_id=provider_id,
+                )
+            )
+        except DashboardHttpError as exc:
+            return error_response(
+                exc.message,
+                exc.status_code,
+                _DEFAULT_ERROR_TYPES.get(exc.status_code, "ValidationException"),
+            )
+
+        # Back to the day being looked at, carrying the outcome so the doctor sees
+        # whether the patient was actually told.
+        query = f"?role={role or 'doctor'}"
+        if day:
+            query += f"&day={day}"
+        if provider_id:
+            query += f"&provider_id={provider_id}"
+        if message:
+            query += f"&notice={urllib.parse.quote(message)}"
+        if error:
+            query += f"&error={urllib.parse.quote(error)}"
+        return RedirectResponse(url=f"/slots{query}", status_code=303)
+
     async def slot_block_route(request: StarletteRequest) -> Response:
         """``POST /slots/block`` — take slots off the calendar, or give them back."""
         role = role_of(request)
@@ -2379,6 +2424,7 @@ def create_asgi_app(
             Route("/voice", voice_client_route, methods=["GET"]),
             Route("/slots", slots_route, methods=["GET", "POST"]),
             Route("/slots/block", slot_block_route, methods=["POST"]),
+            Route("/slots/cancel", appointment_cancel_route, methods=["POST"]),
             Route(
                 "/slots/patient/{patient_id}",
                 patient_detail_route,

@@ -285,14 +285,31 @@ def _render_cell(
         # No block control at all: freeing this time means cancelling the
         # patient's appointment, which is a separate and deliberate act. Instead
         # the cell links to who holds it.
+        # Cancelling is offered here and blocking still is not. Blocking would hide
+        # the time while leaving the patient expecting it; cancelling ends the
+        # appointment and texts them. Guarded by a confirm(), because it cannot be
+        # undone and it sends a message to a real person.
+        cancel = (
+            f'<form method="post" action="{_esc(view.url(SLOTS_ENDPOINT + "/cancel"))}" '
+            'onsubmit="return confirm(\'Cancel this appointment and text the '
+            'patient? This cannot be undone.\')">'
+            f'<input type="hidden" name="day" value="{_esc(view.day)}">'
+            f'<input type="hidden" name="provider_id" value="{_esc(view.provider_id)}">'
+            f'<input type="hidden" name="slot_id" value="{_esc(cell.slot_id)}">'
+            '<button type="submit" class="day-schedule__cell-action">'
+            "Cancel &amp; notify</button>"
+            "</form>"
+        )
         if cell.patient_id:
             action = (
                 f'<a class="day-schedule__cell-action" '
                 f'href="{_esc(view.url(SLOTS_ENDPOINT + "/patient/" + quote(cell.patient_id, safe=""), day=view.day, provider_id=view.provider_id))}">'
-                "View patient</a>"
+                "View patient</a>" + cancel
             )
         else:
-            action = '<span class="day-schedule__cell-locked">booked</span>'
+            action = (
+                '<span class="day-schedule__cell-locked">booked</span>' + cancel
+            )
     else:
         blocking = not cell.blocked
         action = (

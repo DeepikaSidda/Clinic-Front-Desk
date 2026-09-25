@@ -38,6 +38,7 @@ import asyncio
 import html
 import json
 import mimetypes
+import os
 import re
 from collections.abc import AsyncIterator, Mapping
 from urllib.parse import quote
@@ -289,10 +290,25 @@ class DashboardWebApp:
         *,
         role_gate: RoleGate | None = None,
         now: Any = None,
+        sms_sender: Any = None,
     ) -> None:
         self.app = app
         self.role_gate = role_gate or RoleGate()
         self._now = now or (lambda: datetime.now(UTC))
+        # Texts a patient whose appointment the clinic cancelled. Defaults to the
+        # sender that does nothing and says so, rather than one that silently
+        # pretends: an unconfigured deployment must not report patients as notified.
+        if sms_sender is None:
+            from clinic_front_desk.handover.live import default_region
+            from clinic_front_desk.notifications import NullSmsSender, SnsSmsSender
+
+            sms_sender = (
+                SnsSmsSender(region=default_region())
+                if os.environ.get("CLINIC_SMS_ENABLED", "").strip().lower()
+                in {"1", "true", "yes", "on"}
+                else NullSmsSender()
+            )
+        self.sms_sender = sms_sender
         self._decision_actions = DecisionActionService(
             decision_store=app.stores.decisions,
             appointment_store=app.stores.appointments,
@@ -1110,6 +1126,115 @@ class DashboardWebApp:
             day for day, hours in kb.hours.items() if hours is not None
         )
         return configured or frozenset(range(7))
+
+    def _appointment_id_for_slot(
+        self, *, slot_id: str, day: str, provider_id: str
+    ) -> str:
+        """The booked appointment holding ``slot_id``, or ``""``.
+
+        The day view knows slots, not appointments — a cell carries a ``slot_id``
+        because that is what the calendar is made of. Resolving here keeps the page's
+        view model unchanged and means the button can only ever cancel the booking
+        that actually holds the time the doctor clicked.
+        """
+        if not (slot_id and day and provider_id):
+            return ""
+        listed = self.app.stores.appointments.list_by_provider_and_day(provider_id, day)
+        if is_err(listed):
+            return ""
+        for appointment in listed.value:
+            if getattr(appointment, "slot_id", "") == slot_id:
+                return str(appointment.id)
+        return ""
+
+    def cancel_appointment(
+        self,
+        role: str | None,
+        *,
+        appointment_id: str = "",
+        slot_id: str = "",
+        day: str = "",
+        provider_id: str = "",
+    ) -> tuple[str | None, str | None]:
+        """Cancel a booked appointment and tell the patient, returning (message, error).
+
+        The deliberate act that ``set_slot_block`` refuses to do implicitly. Blocking
+        a booked slot is rejected precisely so that freeing that time has to come
+        through here, where the patient is notified.
+
+        The order matters and is the whole point. The cancellation is written first,
+        then the patient is texted. A failed text must never leave the clinic thinking
+        a slot is still taken — but a successful cancellation with a failed text must
+        be **visible**, because a doctor who assumes the patient was told will not ring
+        them, and a patient who was not told arrives to a locked door.
+        """
+        self.require_view(role, DashboardView.SCHEDULE)
+
+        if not appointment_id:
+            appointment_id = self._appointment_id_for_slot(
+                slot_id=slot_id, day=day, provider_id=provider_id
+            )
+        if not appointment_id:
+            return None, "No appointment found for that slot."
+
+        found = self.app.stores.appointments.get(appointment_id)
+        if is_err(found) or found.value is None:
+            return None, "That appointment no longer exists."
+        appointment = found.value
+
+        # Read the patient before cancelling: the name and number are what the text
+        # needs, and they are easier to reach while the appointment is still whole.
+        patient_name = ""
+        patient_phone = ""
+        if appointment.patient_id:
+            patient = self.app.stores.patients.get(appointment.patient_id)
+            if is_ok(patient) and patient.value is not None:
+                patient_name = patient.value.name
+                patient_phone = patient.value.callback_phone
+
+        removed = self.app.stores.appointments.remove(appointment_id)
+        if is_err(removed):
+            return None, f"Could not cancel: {removed.error.detail}"
+
+        told = self._notify_cancelled(
+            appointment=appointment,
+            patient_name=patient_name,
+            patient_phone=patient_phone,
+        )
+        freed = f"{appointment.date} at {appointment.time}"
+        return f"Cancelled {appointment.service} on {freed}. {told}", None
+
+    def _notify_cancelled(
+        self, *, appointment: Any, patient_name: str, patient_phone: str
+    ) -> str:
+        """Text the patient, and say plainly what happened either way.
+
+        Returns a sentence for the doctor, not a boolean, because "not texted" is only
+        actionable if she knows she has to ring them.
+        """
+        from clinic_front_desk.notifications import cancellation_message
+
+        if not patient_phone:
+            return "No mobile number on file — please contact them directly."
+
+        contact = ""
+        config = self.app.stores.knowledge_base.get()
+        if is_ok(config) and config.value is not None:
+            contact = config.value.contact_phone or ""
+
+        body = cancellation_message(
+            patient_name=patient_name,
+            service=appointment.service,
+            date=appointment.date,
+            time=appointment.time,
+            clinic_phone=contact,
+        )
+        outcome = self.sms_sender.send(patient_phone, body)
+        if outcome.sent:
+            return f"The patient has been texted on {outcome.to}."
+        return (
+            f"NOT texted ({outcome.detail}) — please ring {patient_phone} yourself."
+        )
 
     def set_slot_block(
         self,

@@ -169,6 +169,12 @@ Environment=AWS_REGION={REGION}
 Environment=CLINIC_RECORDINGS_BUCKET={RECORDINGS_BUCKET}
 Environment=CLINIC_DOCUMENTS_BUCKET={RECORDINGS_BUCKET}
 Environment=CLINIC_LOG_LEVEL=info
+# Texts a patient whose appointment the clinic cancelled. Opt-in, because an
+# unconfigured deployment must report patients as *not* notified rather than
+# silently pretending. Delivery is limited by the AWS SMS sandbox to numbers that
+# have been verified, and production delivery to Indian mobiles additionally needs
+# TRAI DLT registration through a telecom operator.
+Environment=CLINIC_SMS_ENABLED=1
 # The live-console shared secret, if one has been set. Deliberately a file rather
 # than a literal here: this script is in a public repo, and a secret committed once
 # is committed permanently. The leading '-' means a missing file is not an error, so
