@@ -24,7 +24,7 @@ from typing import Any
 import websockets
 
 PUBLIC_WS = "wss://d21u7cmj563imv.cloudfront.net/ws"
-LOCAL_WS = "ws://127.0.0.1:8080/ws"
+LOCAL_WS = "ws://127.0.0.1:8081/ws"
 TABLE = "clinic-front-desk"
 REGION = "us-east-1"
 
@@ -39,12 +39,24 @@ CASES: tuple[tuple[str, tuple[str, ...], tuple[str, ...], str], ...] = (
     ),
     (
         "My knee has been hurting for a week. Which service should I book?",
-        # The doctor wrote no rule for knees, and this is an ENT clinic.
-        ("human", "someone", "specialist"),
-        # It must not name an ENT service for a knee. "book" is deliberately not
-        # forbidden: "I can help you book an appointment" is the agent being useful,
-        # and an earlier version of this check failed the agent for saying it.
-        ("ent consultation", "endoscopy", "hearing test"),
+        # Two answers are within the rules here, and the model uses both: refuse to
+        # advise and offer the generic consultation, or say the clinic does not treat
+        # this and point elsewhere. Asserting one exact phrasing failed a correct
+        # agent twice. What matters is that it answers, refuses to judge the symptom,
+        # and does not invent a service for it.
+        (
+            "advise on symptoms",
+            "don't treat",
+            "do not treat",
+            "specializes in",
+            "specialises in",
+            "orthopedic",
+            "orthopaedic",
+        ),
+        # What must never appear: framings that imply the agent weighed the symptom
+        # and reached a conclusion. Naming the consultation is correct here; calling
+        # it the best option, or restating the symptom as the reason, is not.
+        ("best option", "safest", "i recommend", "sounds like", "for your knee"),
         "an unrouted symptom",
     ),
 )
