@@ -108,6 +108,22 @@
     },
     {
       "SidComment": [
+        "Texting a patient whose appointment the clinic cancelled.",
+        "Every other path here is inbound - the patient rings, the agent answers - so",
+        "a cancelled appointment was invisible to the person it belonged to and they",
+        "would have arrived to a locked door.",
+        "sns:Publish with no Resource is how SNS sends to a phone number: an SMS to a",
+        "bare PhoneNumber has no topic ARN to scope to. Deliberately grants no",
+        "topic or subscription management: this sends one message, it does not",
+        "administer a messaging platform."
+      ],
+      "Sid": "PatientNotifications",
+      "Effect": "Allow",
+      "Action": ["sns:Publish"],
+      "Resource": "*"
+    },
+    {
+      "SidComment": [
         "Two prefixes, both in CLINIC_RECORDINGS_BUCKET / CLINIC_DOCUMENTS_BUCKET.",
         "call-recordings/ is call audio, written only when CLINIC_RECORDINGS_BUCKET",
         "is set. clinic-documents/ holds the clinic briefing the agent reads at the",
