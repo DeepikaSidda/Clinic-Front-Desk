@@ -32,18 +32,21 @@ Everything interesting we built came out of defending that line.
 
 | 📞 Caller page | 🗓️ Appointment page | 🎧 Live call page |
 | --- | --- | --- |
-| **[Start a call](https://d21u7cmj563imv.cloudfront.net/voice)** | **[See the appointments](https://d21u7cmj563imv.cloudfront.net/slots?role=doctor)** | **[Watch live calls](https://d21u7cmj563imv.cloudfront.net/live?role=doctor&k=POsBgStYRRE64ZBytbrGdWvelnWXhrLd6jh6oLT3Af8)** |
-| Book, reschedule, cancel, ask anything | The day's grid — watch a slot get taken | Take over a call in your own voice |
+| **[Start a call](https://d21u7cmj563imv.cloudfront.net/voice)** | **[See the appointments](https://d21u7cmj563imv.cloudfront.net/slots?role=doctor&day=2026-09-12)** | **[Watch live calls](https://d21u7cmj563imv.cloudfront.net/live?role=doctor&k=POsBgStYRRE64ZBytbrGdWvelnWXhrLd6jh6oLT3Af8)** |
+| Book, reschedule, cancel, ask anything | A full clinic day — 12 Sep 2026 | Take over a call in your own voice |
 
 **Try this.** Open the appointment page, pick a time still marked **open**, then ring the agent
 and ask for it — *"I'd like to book an ENT consultation at half past twelve today."* Reload the
 page and that cell reads booked, with your name on it.
 
-**The diary is filled for 26 September to 2 October 2026** — 17 booked and 5 open on each of
-those days, so add `&day=2026-09-26` to land on one. On 26 September the open times are 11:00,
-12:30, 14:30, 16:30 and 18:00. Sunday 27 September is empty because it is the clinic holiday,
-and that is worth testing on its own: ask the agent for that Sunday and it says the clinic is
-closed and offers you the Monday.
+**Open [12 September 2026](https://d21u7cmj563imv.cloudfront.net/slots?role=doctor&day=2026-09-12)
+to see a full clinic day** — 17 booked, 5 open at 11:00, 12:30, 14:30, 16:30 and 18:00, every
+booked cell naming its patient. To book one yourself, move the Day picker to today or later: the
+agent never offers a time that has already started, so a past date can be read but not booked
+into. **26 September to 2 October 2026** are filled the same way.
+
+Sunday 27 September is empty because it is the clinic holiday, and that is worth testing on its
+own: ask the agent for that Sunday and it says the clinic is closed and offers you the Monday.
 
 Then push on it. Ask for a time already taken and it says so rather than double-booking — the
 slot is re-checked as still open at the moment of writing, so two callers racing for one slot

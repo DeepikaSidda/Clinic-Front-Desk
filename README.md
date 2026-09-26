@@ -20,15 +20,23 @@ Open the three pages side by side and watch a single call move across all of the
 
 | 📞 Caller page | 🗓️ Appointment page | 🎧 Live call page |
 | --- | --- | --- |
-| **[Start a call](https://d21u7cmj563imv.cloudfront.net/voice)** | **[See the appointments](https://d21u7cmj563imv.cloudfront.net/slots?role=doctor)** | **[Watch live calls](https://d21u7cmj563imv.cloudfront.net/live?role=doctor&k=POsBgStYRRE64ZBytbrGdWvelnWXhrLd6jh6oLT3Af8)** |
-| Book, reschedule, cancel, ask anything | The day's grid — watch a slot get taken | Take over a call in your own voice |
+| **[Start a call](https://d21u7cmj563imv.cloudfront.net/voice)** | **[See the appointments](https://d21u7cmj563imv.cloudfront.net/slots?role=doctor&day=2026-09-12)** | **[Watch live calls](https://d21u7cmj563imv.cloudfront.net/live?role=doctor&k=POsBgStYRRE64ZBytbrGdWvelnWXhrLd6jh6oLT3Af8)** |
+| Book, reschedule, cancel, ask anything | A full clinic day — 12 Sep 2026 | Take over a call in your own voice |
 
-> **Which days have data.** The diary is filled for **Saturday 26 September to Friday 2 October
-> 2026** — 17 booked and 5 open on each of those days. **Sunday 27 September is empty on
-> purpose**: it is the clinic holiday, and that is worth testing too — ask the agent for that
-> Sunday and it tells you the clinic is closed and offers the Monday instead. From **3 October**
-> onwards every slot is still open. Every page below accepts `&day=YYYY-MM-DD`, so you can jump
-> straight to a date.
+> **Which dates to look at.**
+>
+> **To see a full clinic day: [12 September 2026](https://d21u7cmj563imv.cloudfront.net/slots?role=doctor&day=2026-09-12)**
+> — 17 booked, 5 open, every booked cell naming its patient. That is the day to open first.
+>
+> **To book one yourself on a call, use today or later.** The agent will not offer a time that
+> has already started, so a past date can be read but not booked into. The diary is also filled
+> for **26 September to 2 October 2026**, with the same 17 booked and 5 open per day.
+>
+> **Sunday 27 September is empty on purpose** — it is the clinic holiday, and it is worth a test
+> of its own: ask the agent for that Sunday and it says the clinic is closed and offers the
+> Monday instead. From **3 October** every slot is still open.
+>
+> Every page below accepts `&day=YYYY-MM-DD`, so you can jump straight to any date.
 
 You need a **microphone** and a **Chromium-based browser** (Chrome, Edge, Brave) for the two
 pages that carry audio. The doctor's pages need `?role=doctor`, and the live console also needs
@@ -61,13 +69,16 @@ like: `9900012307` and *"nine nine zero zero zero one two three zero seven"* bot
 
 ### 2. Appointment page — book a slot on a call, then see it taken
 
-**[https://d21u7cmj563imv.cloudfront.net/slots?role=doctor&day=2026-09-26](https://d21u7cmj563imv.cloudfront.net/slots?role=doctor&day=2026-09-26)**
+**[https://d21u7cmj563imv.cloudfront.net/slots?role=doctor&day=2026-09-12](https://d21u7cmj563imv.cloudfront.net/slots?role=doctor&day=2026-09-12)**
 
 The day as a grid — Morning, Afternoon, Evening — each cell showing its time, its service, and
-when taken, the patient's name.
+when taken, the patient's name. **12 September 2026** is a full day: 17 booked, 5 open at
+`11:00`, `12:30`, `14:30`, `16:30` and `18:00`.
 
-1. Find a cell marked **open**. On 26 September those are `11:00`, `12:30`, `14:30`, `16:30`
-   and `18:00`.
+To book one yourself, switch the **Day** picker to today or a later date — the agent will not
+offer a time that has already started, so the 12th can be read but not booked into. Then:
+
+1. Find a cell marked **open**. On the seeded days those are the same five times.
 2. On the caller page, ask for one: *"I'd like to book an ENT consultation at half past twelve
    today."* Give a name and mobile when asked.
 3. **Reload the appointment page.** That cell now reads **booked**, with your name on it.
