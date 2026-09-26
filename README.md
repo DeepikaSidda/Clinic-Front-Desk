@@ -16,23 +16,42 @@ it does not guess. It declines and escalates.
 
 ## Test it yourself, all three pages at once
 
-The best way to understand this is to open the three pages side by side and watch a single call move across all of them. On the **caller page** you press Start call and simply talk — ask where the clinic is, what time it opens, whether it's open on Sunday, then book a slot, then change your mind and move it, then cancel it. The agent asks for your name and mobile, gives you back a five-character code, and collects your age, blood group, height and weight for the clinic's records. Everything you just said arrives on the **doctor's dashboard**: the appointment sitting in the day's schedule, the full slot calendar, your patient record with those details filled in, and the transcript and recording of the call you just made. The doctor has full access there — she can correct any field you got mis-transcribed, and cancel a booked appointment, which texts the patient. Then on the **live call page**, someone at the clinic watches calls as they happen, and the moment a caller asks for a person the page rings: one button puts a real human on the line in their own voice, while the agent steps back and stops listening. That whole conversation, both voices, is recorded and stored too. Start a call on the first page, keep the other two open, and you'll see the appointment appear and the handover ring in real time.
+Open the three pages side by side and watch a single call move across all of them.
 
-| 📞 Caller page | 🗓️ Doctor dashboard | 🎧 Live call page |
+| 📞 Caller page | 🗓️ Appointment page | 🎧 Live call page |
 | --- | --- | --- |
-| **[Start a call](https://d21u7cmj563imv.cloudfront.net/voice)** | **[Open the dashboard](https://d21u7cmj563imv.cloudfront.net/?role=doctor)** | **[Watch live calls](https://d21u7cmj563imv.cloudfront.net/live?role=doctor&k=POsBgStYRRE64ZBytbrGdWvelnWXhrLd6jh6oLT3Af8)** |
-| Book, reschedule, cancel, ask anything | Schedule, patient records, transcripts, recordings | Take over a call in your own voice |
+| **[Start a call](https://d21u7cmj563imv.cloudfront.net/voice)** | **[See the appointments](https://d21u7cmj563imv.cloudfront.net/slots?role=doctor)** | **[Watch live calls](https://d21u7cmj563imv.cloudfront.net/live?role=doctor&k=POsBgStYRRE64ZBytbrGdWvelnWXhrLd6jh6oLT3Af8)** |
+| Book, reschedule, cancel, ask anything | The day's grid — watch a slot get taken | Take over a call in your own voice |
 
-Press **Start call** and speak. Needs a microphone and a Chromium-based browser.
-Try: *"I'd like to book a hearing test"*, then *"Sunday the thirteenth"*.
+### Book a slot on a call, and watch it get taken
 
-**To see the handover, open the caller page and the live call page in two tabs.** Start a call,
-say *"can I speak to a person"*, and the live console rings. Press **🎤 Take over & talk** and
-you are on the call in your own voice, while the agent goes quiet.
+This is the thing worth seeing, and it takes a minute:
 
-All three pages need `?role=doctor` or the token already in the links above — the dashboard
-shows an access-denied page with no data regions if no role is given, and the live console
-refuses without the `k` secret.
+1. Open the **appointment page** and note one of the times still marked **open** — say `11:00`.
+2. On the **caller page**, press **Start call** and ask for it: *"I'd like to book an ENT
+   consultation at eleven this morning."* Give a name and mobile when asked.
+3. **Reload the appointment page.** That slot now reads **booked**, with your name on the cell.
+
+The agent held the calendar to it the whole way: it only offered times the doctor had actually
+published, it checked the slot was still open before writing, and it read the booking back to
+you only after the write returned. Ask for a time that is already taken and it will say so
+rather than double-booking you.
+
+The appointment page is deliberately plain — server-rendered, no JavaScript at all — so it
+needs that reload. If you want to watch a booking land **without touching anything**, open the
+[dashboard](https://d21u7cmj563imv.cloudfront.net/?role=doctor) alongside it: its schedule,
+call log and metrics subscribe to a server-sent change stream and redraw themselves within
+five seconds of the write.
+
+From there, **Cancel & notify** on that cell cancels the appointment, frees the slot again, and
+texts the patient.
+
+**To see the handover**, keep the caller page and the live call page open. Start a call, say
+*"can I speak to a person"*, and the live console rings. Press **🎤 Take over & talk** and you
+are on the call in your own voice, while the agent goes quiet.
+
+The doctor's pages need `?role=doctor`, already in the links above, and the live console also
+needs the `k` secret. Speaking needs a microphone and a Chromium-based browser.
 
 > **This demo host is open on purpose, so the whole system can be tried end to end.** The
 > dashboard reads the clinic's real history — patient records, transcripts, call recordings —

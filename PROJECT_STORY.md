@@ -30,15 +30,24 @@ Everything interesting we built came out of defending that line.
 
 **Live demo — all three pages are open, so a single call can be followed across all of them:**
 
-| 📞 Caller page | 🗓️ Doctor dashboard | 🎧 Live call page |
+| 📞 Caller page | 🗓️ Appointment page | 🎧 Live call page |
 | --- | --- | --- |
-| **[Start a call](https://d21u7cmj563imv.cloudfront.net/voice)** | **[Open the dashboard](https://d21u7cmj563imv.cloudfront.net/?role=doctor)** | **[Watch live calls](https://d21u7cmj563imv.cloudfront.net/live?role=doctor&k=POsBgStYRRE64ZBytbrGdWvelnWXhrLd6jh6oLT3Af8)** |
-| Book, reschedule, cancel, ask anything | Schedule, patient records, transcripts, recordings | Take over a call in your own voice |
+| **[Start a call](https://d21u7cmj563imv.cloudfront.net/voice)** | **[See the appointments](https://d21u7cmj563imv.cloudfront.net/slots?role=doctor)** | **[Watch live calls](https://d21u7cmj563imv.cloudfront.net/live?role=doctor&k=POsBgStYRRE64ZBytbrGdWvelnWXhrLd6jh6oLT3Af8)** |
+| Book, reschedule, cancel, ask anything | The day's grid — watch a slot get taken | Take over a call in your own voice |
 
-Start a call on the first page with the other two open, and you can watch the appointment
-appear on the schedule and the handover ring in real time. The demo host publishes the
-dashboard deliberately; a real clinic's deployment sets `CLINIC_VOICE_ONLY=1` and those routes
-are not registered at all.
+**Try this.** Open the appointment page, pick a time still marked **open**, then ring the agent
+and ask for it — *"I'd like to book an ENT consultation at eleven this morning."* Reload the
+page and that slot reads booked, with your name on the cell. Ask for a time already taken and
+the agent says so rather than double-booking you: it only ever offers slots the doctor
+published, and it checks the slot is still open before writing.
+
+The appointment page is server-rendered with no JavaScript, hence the reload. The
+[dashboard](https://d21u7cmj563imv.cloudfront.net/?role=doctor) is the one that redraws itself:
+its schedule, call log and metrics subscribe to a server-sent change stream and update within
+five seconds of the write, no refresh needed.
+
+The demo host publishes these pages deliberately; a real clinic's deployment sets
+`CLINIC_VOICE_ONLY=1` and those routes are not registered at all.
 
 Press *Start call* and speak. Your microphone streams as 16 kHz mono PCM to **Amazon Nova Sonic** over a bidirectional **Amazon Bedrock** stream, and the reply returns at 24 kHz. It is genuine speech-to-speech with no transcribe-then-synthesise hop, so it feels like a conversation rather than a voice assistant. Interrupt it mid-sentence and playback stops in under 500 ms.
 
