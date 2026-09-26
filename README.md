@@ -14,23 +14,29 @@ human the moment someone needs one.
 It is deliberately, strictly administrative. Asked *"my ear hurts, what's wrong with me?"*
 it does not guess. It declines and escalates.
 
-> ### Call it yourself
-> ### **https://d21u7cmj563imv.cloudfront.net/voice**
->
-> Press **Start call** and speak. Needs a microphone and a Chromium-based browser.
-> Try: *"I'd like to book a hearing test"*, then *"Sunday the thirteenth"*.
->
-> The doctor's dashboard is deliberately **not** published at that URL — see the
-> **Security posture** section below.
-
 ## Test it yourself, all three pages at once
 
 The best way to understand this is to open the three pages side by side and watch a single call move across all of them. On the **caller page** you press Start call and simply talk — ask where the clinic is, what time it opens, whether it's open on Sunday, then book a slot, then change your mind and move it, then cancel it. The agent asks for your name and mobile, gives you back a five-character code, and collects your age, blood group, height and weight for the clinic's records. Everything you just said arrives on the **doctor's dashboard**: the appointment sitting in the day's schedule, the full slot calendar, your patient record with those details filled in, and the transcript and recording of the call you just made. The doctor has full access there — she can correct any field you got mis-transcribed, and cancel a booked appointment, which texts the patient. Then on the **live call page**, someone at the clinic watches calls as they happen, and the moment a caller asks for a person the page rings: one button puts a real human on the line in their own voice, while the agent steps back and stops listening. That whole conversation, both voices, is recorded and stored too. Start a call on the first page, keep the other two open, and you'll see the appointment appear and the handover ring in real time.
 
 | 📞 Caller page | 🗓️ Doctor dashboard | 🎧 Live call page |
 | --- | --- | --- |
-| [Start a call](https://d21u7cmj563imv.cloudfront.net/voice) | [Open the dashboard](https://d21u7cmj563imv.cloudfront.net/) | [Watch live calls](https://d21u7cmj563imv.cloudfront.net/live?role=doctor) |
+| **[Start a call](https://d21u7cmj563imv.cloudfront.net/voice)** — open to anyone | Not published · run it locally | Published, but needs the console token |
 | Book, reschedule, cancel, ask anything | Schedule, patient records, transcripts, recordings | Take over a call in your own voice |
+
+Press **Start call** and speak. Needs a microphone and a Chromium-based browser.
+Try: *"I'd like to book a hearing test"*, then *"Sunday the thirteenth"*.
+
+**Only the caller page is open to the public, and that is deliberate.** The dashboard reads
+the clinic's whole history — patient records, the calendar, transcripts, recordings — and it
+has no authentication: `?role=doctor` is a convenience for local runs, not a credential, so
+anyone holding the link could name themselves doctor. On the public host the server runs with
+`CLINIC_VOICE_ONLY=1`, which leaves those routes **unrouted — they return 404 even with a
+valid token**. The live console is the one exception, because it reads no stored records: its
+blast radius is calls in progress rather than the clinic's history, so a token is enough.
+
+To see the dashboard, run it locally against your own table — see
+[Running it locally](#running-it-locally). Screenshots are in the write-up under
+[`blog/`](blog/).
 
 | | |
 | --- | --- |
