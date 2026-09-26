@@ -20,23 +20,22 @@ The best way to understand this is to open the three pages side by side and watc
 
 | 📞 Caller page | 🗓️ Doctor dashboard | 🎧 Live call page |
 | --- | --- | --- |
-| **[Start a call](https://d21u7cmj563imv.cloudfront.net/voice)** — open to anyone | Not published · run it locally | Published, but needs the console token |
+| **[Start a call](https://d21u7cmj563imv.cloudfront.net/voice)** | **[Open the dashboard](https://d21u7cmj563imv.cloudfront.net/?role=doctor)** | **[Watch live calls](https://d21u7cmj563imv.cloudfront.net/live?role=doctor)** — needs the console token |
 | Book, reschedule, cancel, ask anything | Schedule, patient records, transcripts, recordings | Take over a call in your own voice |
 
 Press **Start call** and speak. Needs a microphone and a Chromium-based browser.
 Try: *"I'd like to book a hearing test"*, then *"Sunday the thirteenth"*.
 
-**Only the caller page is open to the public, and that is deliberate.** The dashboard reads
-the clinic's whole history — patient records, the calendar, transcripts, recordings — and it
-has no authentication: `?role=doctor` is a convenience for local runs, not a credential, so
-anyone holding the link could name themselves doctor. On the public host the server runs with
-`CLINIC_VOICE_ONLY=1`, which leaves those routes **unrouted — they return 404 even with a
-valid token**. The live console is the one exception, because it reads no stored records: its
-blast radius is calls in progress rather than the clinic's history, so a token is enough.
+The dashboard needs `?role=doctor` on the URL to show anything — without a role it renders an
+access-denied page with no data regions at all. The live console additionally requires
+`&k=<console token>`, because it carries live patient speech and the ability to speak as the
+clinic.
 
-To see the dashboard, run it locally against your own table — see
-[Running it locally](#running-it-locally). Screenshots are in the write-up under
-[`blog/`](blog/).
+> **This demo host is open on purpose, so the whole system can be tried end to end.** The
+> dashboard reads the clinic's real history — patient records, transcripts, call recordings —
+> and `?role=doctor` is a convenience, not a credential. Do not point this deployment at a
+> real clinic's data. For a private host, set `CLINIC_VOICE_ONLY=1` and the dashboard routes
+> are not registered at all; see [Security posture](#security-posture).
 
 | | |
 | --- | --- |

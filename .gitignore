@@ -46,3 +46,7 @@ Thumbs.db
 # The live-console shared secret (scripts/make_console_token.py). Anyone holding it
 # can watch and join calls in progress on the public host.
 .secrets/
+
+# Table backups taken before destructive cleanups. These hold real patient names,
+# mobile numbers and call transcripts, so they must never be committed.
+.backups/
