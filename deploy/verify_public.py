@@ -8,6 +8,21 @@ Checks, in order:
     /ws              the WebSocket upgrade survives CloudFront
     dashboard paths  are *not* routed (404, not 403)
 
+Two postures, because this repo is deployed both ways and a check that only knows
+one of them is a check that gets ignored:
+
+    default                    a private host. The dashboard routes must be
+                               unrouted — 404, no handler, no token that helps.
+    --public-dashboard         the demo host, running CLINIC_VOICE_ONLY=0 so a
+                               judge can open the schedule and patient records.
+                               The same routes must now *answer*, and the checks
+                               invert: what was "must be absent" becomes "must
+                               work", plus a no-role request must still be denied.
+
+``CLINIC_PUBLIC_DASHBOARD=1`` does the same as the flag. The live-console rules do
+not change between the two: it carries live patient speech, so an unauthorised
+request is refused either way.
+
 The WebSocket check is the one that matters most. CloudFront only forwards the
 ``Upgrade``/``Connection`` headers under an origin request policy that passes all
 viewer headers, and if that is wrong the page will load perfectly and then fail
@@ -189,7 +204,16 @@ def wait_for_ping(timeout: int = 900) -> bool:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--wait", action="store_true", help="poll until /ping is 200")
+    parser.add_argument(
+        "--public-dashboard",
+        action="store_true",
+        help="the host runs CLINIC_VOICE_ONLY=0, so the dashboard must answer rather than 404",
+    )
     args = parser.parse_args()
+
+    public_dashboard = args.public_dashboard or os.environ.get(
+        "CLINIC_PUBLIC_DASHBOARD", ""
+    ).strip().lower() in {"1", "true", "yes", "on"}
 
     failures: list[str] = []
 
@@ -235,21 +259,62 @@ def main() -> None:
     if not upgraded:
         failures.append("/ws")
 
-    print("PATIENT RECORDS MUST NOT BE ROUTED AT ALL")
-    for path in PRIVATE:
-        # Ask as the doctor, since ?role= is not a security control and a judge
-        # with the link could do exactly this. Also send a token if one is
-        # configured: the secret publishes the live console and must buy nothing
-        # else, so these have to stay 404 even for whoever holds it.
-        query = AS_DOCTOR + (f"&k={TOKEN}" if TOKEN else "")
-        code, body = get(path + query)
-        # 404 is the intended answer: there is no handler at all, so there is no
-        # role check to get past and no token that helps.
-        ok = code in (404, 405)
-        label = f"{path}{AS_DOCTOR}" + ("&k=***" if TOKEN else "")
-        print(f"  {'ok  ' if ok else 'FAIL'} {label} -> {code}")
+    if public_dashboard:
+        # The demo host publishes these on purpose, so the requirement inverts: a
+        # judge following the README link must get a page, not a 404. Checking the
+        # old way here would fail every run and train everyone to ignore this
+        # script, which is worse than not checking.
+        print("DASHBOARD IS PUBLISHED ON PURPOSE — IT MUST WORK")
+        for path in PRIVATE:
+            code, body = get(path + AS_DOCTOR)
+            if path == "/dashboard/events":
+                # An SSE stream that stays open for the life of the page, so the
+                # read *has* to time out. Reaching the timeout is the pass; a status
+                # code would mean the stream closed immediately.
+                ok = code == "TimeoutError" or code == 200
+                note = " (SSE stream held open — a timeout here is correct)"
+            elif path.endswith("/any"):
+                # Asks for a call id that does not exist, so 404 is the right answer
+                # and proves the handler ran rather than being absent.
+                ok = code in (200, 404)
+                note = ""
+            else:
+                ok = code == 200
+                note = ""
+            print(
+                f"  {'ok  ' if ok else 'FAIL'} {path}{AS_DOCTOR} -> {code}, {len(body)} bytes{note}"
+            )
+            if not ok:
+                failures.append(f"broken {path}")
+
+        # Publishing the dashboard must not also mean publishing it to a visitor
+        # who never claimed a role. This is the one access control still standing
+        # on the demo host, so it is the one worth asserting hardest.
+        print("A VISITOR WITH NO ROLE MUST STILL BE DENIED")
+        code, body = get("/")
+        text = body.decode("utf-8", "replace").lower()
+        leaked = [word for word in ("blood", "callback_phone", "patient#") if word in text]
+        ok = code in (200, 403) and not leaked
+        detail = f"leaked {leaked}" if leaked else "no data regions"
+        print(f"  {'ok  ' if ok else 'FAIL'} / with no role -> {code}, {len(body)} bytes, {detail}")
         if not ok:
-            failures.append(f"exposed {path}")
+            failures.append("/ leaks data without a role")
+    else:
+        print("PATIENT RECORDS MUST NOT BE ROUTED AT ALL")
+        for path in PRIVATE:
+            # Ask as the doctor, since ?role= is not a security control and a judge
+            # with the link could do exactly this. Also send a token if one is
+            # configured: the secret publishes the live console and must buy nothing
+            # else, so these have to stay 404 even for whoever holds it.
+            query = AS_DOCTOR + (f"&k={TOKEN}" if TOKEN else "")
+            code, body = get(path + query)
+            # 404 is the intended answer: there is no handler at all, so there is no
+            # role check to get past and no token that helps.
+            ok = code in (404, 405)
+            label = f"{path}{AS_DOCTOR}" + ("&k=***" if TOKEN else "")
+            print(f"  {'ok  ' if ok else 'FAIL'} {label} -> {code}")
+            if not ok:
+                failures.append(f"exposed {path}")
 
     print("LIVE CONSOLE MUST REFUSE AN UNAUTHORISED REQUEST")
     for path in CONSOLE:
@@ -298,10 +363,17 @@ def main() -> None:
     # and patient lookup without going through speech at all. GET would report a
     # misleading 405 in a full build, so ask the way a caller actually would.
     code, _ = post_json("/invocations", {"prompt": "list patients"})
-    ok = code in (404, 405)
-    print(f"  {'ok  ' if ok else 'FAIL'} POST /invocations -> {code}")
-    if not ok:
-        failures.append("exposed /invocations")
+    if public_dashboard:
+        # Routed in a full build. Noted rather than failed, because on the demo host
+        # it is exposed by the same decision that exposed the dashboard — but it is
+        # worth printing every run, since this one takes booking and cancellation
+        # instructions as JSON with no speech and no role in the way.
+        print(f"  note  POST /invocations -> {code} (routed; the demo host accepts tool calls)")
+    else:
+        ok = code in (404, 405)
+        print(f"  {'ok  ' if ok else 'FAIL'} POST /invocations -> {code}")
+        if not ok:
+            failures.append("exposed /invocations")
 
     print()
     if failures:

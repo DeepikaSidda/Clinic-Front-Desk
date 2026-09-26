@@ -20,16 +20,19 @@ The best way to understand this is to open the three pages side by side and watc
 
 | 📞 Caller page | 🗓️ Doctor dashboard | 🎧 Live call page |
 | --- | --- | --- |
-| **[Start a call](https://d21u7cmj563imv.cloudfront.net/voice)** | **[Open the dashboard](https://d21u7cmj563imv.cloudfront.net/?role=doctor)** | **[Watch live calls](https://d21u7cmj563imv.cloudfront.net/live?role=doctor)** — needs the console token |
+| **[Start a call](https://d21u7cmj563imv.cloudfront.net/voice)** | **[Open the dashboard](https://d21u7cmj563imv.cloudfront.net/?role=doctor)** | **[Watch live calls](https://d21u7cmj563imv.cloudfront.net/live?role=doctor&k=POsBgStYRRE64ZBytbrGdWvelnWXhrLd6jh6oLT3Af8)** |
 | Book, reschedule, cancel, ask anything | Schedule, patient records, transcripts, recordings | Take over a call in your own voice |
 
 Press **Start call** and speak. Needs a microphone and a Chromium-based browser.
 Try: *"I'd like to book a hearing test"*, then *"Sunday the thirteenth"*.
 
-The dashboard needs `?role=doctor` on the URL to show anything — without a role it renders an
-access-denied page with no data regions at all. The live console additionally requires
-`&k=<console token>`, because it carries live patient speech and the ability to speak as the
-clinic.
+**To see the handover, open the caller page and the live call page in two tabs.** Start a call,
+say *"can I speak to a person"*, and the live console rings. Press **🎤 Take over & talk** and
+you are on the call in your own voice, while the agent goes quiet.
+
+All three pages need `?role=doctor` or the token already in the links above — the dashboard
+shows an access-denied page with no data regions if no role is given, and the live console
+refuses without the `k` secret.
 
 > **This demo host is open on purpose, so the whole system can be tried end to end.** The
 > dashboard reads the clinic's real history — patient records, transcripts, call recordings —
@@ -832,7 +835,8 @@ forwards WebSockets.
 ```powershell
 python deploy/deploy_voice_agent.py --plan       # print the plan, change nothing
 python deploy/deploy_voice_agent.py              # build it
-python deploy/verify_public.py                   # prove the public surface
+python deploy/verify_public.py --public-dashboard   # prove the demo surface
+python deploy/verify_public.py                   # prove a private host hides the records
 python deploy/smoke_call.py                      # place a real call through it
 python deploy/deploy_voice_agent.py --teardown
 ```
@@ -894,8 +898,28 @@ the code as **not a security control**. On a public URL anyone with the link wou
 be the doctor, reading patient names, mobile numbers and blood groups. Not routing is a
 stronger guarantee than guarding, and less code.
 
-`deploy/verify_public.py` asserts this against the live URL — all nine dashboard routes plus
-`POST /invocations`, each asked as `?role=doctor`.
+> ### The demo host does not do this
+>
+> Everything above describes `CLINIC_VOICE_ONLY=1`, which is the posture for a real clinic
+> and the default in this repo. **The judging host deliberately runs with it off**, because a
+> project about turning calls into appointments cannot be assessed without opening the
+> schedule. A systemd drop-in, `zz-public-dashboard.conf`, sets `CLINIC_VOICE_ONLY=0`;
+> deleting that one file and restarting closes it again.
+>
+> So on that host the dashboard, calendar, patient records, documents, onboarding and
+> `POST /invocations` are all reachable by anyone with the link, and `?role=doctor` is all it
+> takes. The only control still standing is that a visitor who claims no role gets an
+> access-denied page with no data regions. The live console keeps its token either way.
+>
+> The data behind it is a demo clinic. Do not point a deployment configured this way at
+> anyone's real records.
+
+`deploy/verify_public.py` asserts whichever posture is intended, and the two are opposites,
+so it takes a flag rather than guessing. By default it requires all eleven of those routes to
+be **absent** — 404, no handler, no token that helps. With `--public-dashboard` (or
+`CLINIC_PUBLIC_DASHBOARD=1`) it requires them to **answer**, and additionally that `/` with no
+role leaks nothing. The live-console checks are identical in both: refused without the secret,
+working with it, including the doctor's audio socket.
 
 Also in place:
 
