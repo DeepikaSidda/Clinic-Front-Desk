@@ -16,7 +16,17 @@ it does not guess. It declines and escalates.
 
 ## Test it yourself, all three pages at once
 
-Open the three pages side by side and watch a single call move across all of them.
+### 👉 Check **12 September 2026** — that is the day we tested on
+
+Set the appointment page's **Day** picker to `12-09-2026`, or use this link:
+
+**https://d21u7cmj563imv.cloudfront.net/slots?role=doctor&day=2026-09-12**
+
+That is a real clinic day the agent filled: **17 booked, 5 open**, and every booked cell names
+the patient who took it. Open that before anything else — the page makes no sense on an empty
+day, and most dates are empty.
+
+Then open the three pages side by side and watch a single call move across all of them.
 
 | 📞 Caller page | 🗓️ Appointment page | 🎧 Live call page |
 | --- | --- | --- |
