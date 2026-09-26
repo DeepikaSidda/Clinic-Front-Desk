@@ -18,7 +18,7 @@ The best way to understand this is to open the three pages side by side and watc
 
 | 📞 Caller page | 🗓️ Doctor dashboard | 🎧 Live call page |
 | --- | --- | --- |
-| [Start a call](https://d21u7cmj563imv.cloudfront.net/voice) | [Open the dashboard](https://d21u7cmj563imv.cloudfront.net/) | [Watch live calls](https://d21u7cmj563imv.cloudfront.net/live?role=doctor) |
+| [Start a call](https://d21u7cmj563imv.cloudfront.net/voice) | [Open the dashboard](https://d21u7cmj563imv.cloudfront.net/?role=doctor) | [Watch live calls](https://d21u7cmj563imv.cloudfront.net/live?role=doctor&k=POsBgStYRRE64ZBytbrGdWvelnWXhrLd6jh6oLT3Af8) |
 | Book, reschedule, cancel, ask anything | Schedule, patient records, transcripts, recordings | Take over a call in your own voice |
 
 Needs a microphone and a Chromium-based browser.

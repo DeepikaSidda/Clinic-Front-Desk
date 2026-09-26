@@ -28,7 +28,17 @@ Everything interesting we built came out of defending that line.
 
 ## What it does
 
-**Live demo — call it yourself: https://d21u7cmj563imv.cloudfront.net/voice**
+**Live demo — all three pages are open, so a single call can be followed across all of them:**
+
+| 📞 Caller page | 🗓️ Doctor dashboard | 🎧 Live call page |
+| --- | --- | --- |
+| **[Start a call](https://d21u7cmj563imv.cloudfront.net/voice)** | **[Open the dashboard](https://d21u7cmj563imv.cloudfront.net/?role=doctor)** | **[Watch live calls](https://d21u7cmj563imv.cloudfront.net/live?role=doctor&k=POsBgStYRRE64ZBytbrGdWvelnWXhrLd6jh6oLT3Af8)** |
+| Book, reschedule, cancel, ask anything | Schedule, patient records, transcripts, recordings | Take over a call in your own voice |
+
+Start a call on the first page with the other two open, and you can watch the appointment
+appear on the schedule and the handover ring in real time. The demo host publishes the
+dashboard deliberately; a real clinic's deployment sets `CLINIC_VOICE_ONLY=1` and those routes
+are not registered at all.
 
 Press *Start call* and speak. Your microphone streams as 16 kHz mono PCM to **Amazon Nova Sonic** over a bidirectional **Amazon Bedrock** stream, and the reply returns at 24 kHz. It is genuine speech-to-speech with no transcribe-then-synthesise hop, so it feels like a conversation rather than a voice assistant. Interrupt it mid-sentence and playback stops in under 500 ms.
 
