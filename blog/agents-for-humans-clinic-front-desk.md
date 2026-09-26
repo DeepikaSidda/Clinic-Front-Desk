@@ -264,7 +264,80 @@ Calls are answered **in the browser**. I also wrote and tested an **Amazon Conne
 
 ## Where it stands
 
-**1,787 tests passing. `mypy --strict` clean across 114 source files.** All offline, no credentials needed. Concurrency verified at 50 simultaneous callers against the live public URL with zero failures.
+**1,793 tests passing. `mypy --strict` clean across 114 source files.** All offline, no credentials needed. Concurrency verified at 50 simultaneous callers against the live public URL with zero failures, and a greeting latency near one second.
+
+---
+
+## Try it yourself — three pages, one call
+
+Everything below is live. Nothing is a recording.
+
+| 📞 Caller page | 🗓️ Appointment page | 🎧 Live call page |
+| --- | --- | --- |
+| [Start a call](https://d21u7cmj563imv.cloudfront.net/voice) | [See the appointments](https://d21u7cmj563imv.cloudfront.net/slots?role=doctor&day=2026-09-12) | [Watch live calls](https://d21u7cmj563imv.cloudfront.net/live?role=doctor&k=POsBgStYRRE64ZBytbrGdWvelnWXhrLd6jh6oLT3Af8) |
+
+You need a microphone and a Chromium-based browser for the two pages that carry audio.
+
+**Open 12 September 2026 first.** That is a full clinic day — 17 booked, 5 open, every booked cell naming the patient who took it. Most other dates are empty, and the page makes no sense on an empty day.
+
+### 1. Talk to it
+
+Press **Start call**, allow the microphone, and speak. Worth trying, in this order:
+
+| Say this | What should happen |
+| --- | --- |
+| *"What time do you open?"* | Hours from the clinic's configuration, not invented |
+| *"How much is a consultation?"* | *"An ENT Consultation costs 500 rupees."* Rupees, not dollars |
+| *"What's your phone number?"* | The clinic's own number, `1234567890` |
+| *"I'd like to book a hearing test"* | Offers **three** dated slots, not a wall of times |
+| *"Sunday the twenty-seventh"* | Names it as the clinic holiday and offers the Monday |
+| *"My nose is blocked — which service?"* | Reads the doctor's **own written** routing advice |
+| *"My ear hurts, what's wrong with me?"* | **Refuses to diagnose** and offers a human |
+| Interrupt it mid-sentence | Playback stops in under 500 ms |
+| *"Can I speak to a person?"* | Hands over, and the live console rings |
+
+It will read back a five-character code like `SI307`. Quote it on a second call and it finds you instantly.
+
+### 2. Book a slot and watch it get taken
+
+Move the appointment page's **Day** picker to today or later — the agent never offers a time that has already started, so a past date can be read but not booked into. Then find a cell marked **open**, ring the agent and ask for it: *"I'd like to book an ENT consultation at half past twelve today."* Reload the page and that cell reads **booked**, with your name on it.
+
+Now try to break it. Ask for a time already taken and it says so rather than double-booking — the slot is re-checked as open at the moment of writing. Ask to come at 3am and it cannot invent a slot, because no patient-facing tool can create one. Press **Cancel & notify** and the appointment is cancelled, the slot reopens, and the patient is texted.
+
+### 3. Take a call in your own voice
+
+Keep the caller page and the live console open together. Start a call, say *"can I speak to a person"*, and the console **rings**. Press **🎤 Take over & talk**: your microphone goes to the caller and their voice comes back, while the agent stops listening. Or type a line and press **Say**, and Polly speaks it down the caller's existing channel. **Hand back** returns the call to the agent.
+
+Leave it ringing and the caller still isn't abandoned — at 12 seconds they hear someone is being fetched, at 45 an apology with a choice. Close the tab mid-call and the call goes back to the agent rather than to dead air.
+
+---
+
+## What we built, and what we used
+
+**What we built.** A voice agent that answers a clinic's phone, books reschedules and cancels against a real calendar, answers questions from the doctor's own uploaded documents, routes described problems to services using rules she wrote herself, refuses to invent anything clinical, and hands the call to a human in her own voice when one is genuinely needed. Behind it, a second agent that nobody talks to reads the accumulated calls and leaves the doctor suggestions about how her practice runs. Every call ends as a durable record: a transcript, a stereo recording of both voices, and an outcome.
+
+**What we used, and what each service was actually for:**
+
+| Service | Its job here |
+| --- | --- |
+| **Amazon Bedrock** — Nova Sonic | The conversation itself: real speech-to-speech over one bidirectional stream |
+| **Amazon Bedrock** — Titan Embeddings v2 | Answering clinic questions out of the doctor's uploaded PDFs |
+| **Amazon Bedrock** — Nova Lite | Reading a PDF to pre-fill the onboarding wizard |
+| **Amazon DynamoDB** | One table, 4 GSIs — the source of truth behind every fact spoken aloud |
+| **Amazon S3** | Clinic documents, and one stereo WAV per call |
+| **Amazon Polly** | Speaking the doctor's typed line down a live call |
+| **Amazon Transcribe** | Channel-identified transcript of the calls a human took over |
+| **Amazon SNS** | Texting a patient whose appointment was cancelled |
+| **Amazon CloudFront + EC2** | A public HTTPS demo on one `t4g.small`, about 1.7 cents an hour |
+| **Bedrock AgentCore Runtime** | The containerised deployment target |
+| **Amazon CloudWatch** | Logs and metrics |
+| **Strands Agents SDK** | The `BidiAgent` and the twelve-tool loop |
+
+**What I'd tell someone starting this.** The hard part of putting an AI on a clinic's phone isn't the voice. Nova Sonic over Bedrock made the conversation feel real in an afternoon. The hard part is deciding, over and over, that the model doesn't get to *know* things.
+
+Every bug worth writing down was a moment where the agent said something plausible that no tool had told it: a slot nobody published, a saved record that wasn't saved, a date declared unavailable before anything was checked, a fee formatted in dollars for a clinic that charges rupees. None of those were model failures. They were places where I had left a gap between what the system knew and what it was allowed to say, and the model filled it — confidently, on a recorded line, to someone who was going to act on it.
+
+So build the tool boundaries first, and let the model be the thing that talks.
 
 **Code:** https://github.com/DeepikaSidda/Clinic-Front-Desk
 **Live demo:** https://d21u7cmj563imv.cloudfront.net/voice
