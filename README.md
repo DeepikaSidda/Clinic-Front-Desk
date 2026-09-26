@@ -23,6 +23,15 @@ it does not guess. It declines and escalates.
 > The doctor's dashboard is deliberately **not** published at that URL — see the
 > **Security posture** section below.
 
+## Test it yourself, all three pages at once
+
+The best way to understand this is to open the three pages side by side and watch a single call move across all of them. On the **caller page** you press Start call and simply talk — ask where the clinic is, what time it opens, whether it's open on Sunday, then book a slot, then change your mind and move it, then cancel it. The agent asks for your name and mobile, gives you back a five-character code, and collects your age, blood group, height and weight for the clinic's records. Everything you just said arrives on the **doctor's dashboard**: the appointment sitting in the day's schedule, the full slot calendar, your patient record with those details filled in, and the transcript and recording of the call you just made. The doctor has full access there — she can correct any field you got mis-transcribed, and cancel a booked appointment, which texts the patient. Then on the **live call page**, someone at the clinic watches calls as they happen, and the moment a caller asks for a person the page rings: one button puts a real human on the line in their own voice, while the agent steps back and stops listening. That whole conversation, both voices, is recorded and stored too. Start a call on the first page, keep the other two open, and you'll see the appointment appear and the handover ring in real time.
+
+| 📞 Caller page | 🗓️ Doctor dashboard | 🎧 Live call page |
+| --- | --- | --- |
+| [Start a call](https://d21u7cmj563imv.cloudfront.net/voice) | [Open the dashboard](https://d21u7cmj563imv.cloudfront.net/) | [Watch live calls](https://d21u7cmj563imv.cloudfront.net/live?role=doctor) |
+| Book, reschedule, cancel, ask anything | Schedule, patient records, transcripts, recordings | Take over a call in your own voice |
+
 | | |
 | --- | --- |
 | **Voice** | Amazon Nova Sonic, speech-to-speech over Amazon Bedrock bidirectional streaming |
@@ -30,7 +39,7 @@ it does not guess. It declines and escalates.
 | **Storage** | Amazon DynamoDB, single table, 4 GSIs |
 | **Documents** | Amazon S3 + Bedrock embeddings, doctor-uploaded PDFs |
 | **Hosting** | CloudFront + EC2 `t4g.small` (public demo) · Bedrock AgentCore Runtime (container) |
-| **Quality** | **1,758 tests**, `mypy --strict` clean across **112** source files |
+| **Quality** | **1,787 tests**, `mypy --strict` clean across **114** source files |
 | **Language** | Python 3.12 |
 
 
@@ -261,7 +270,7 @@ Distress alone *offers* a handover rather than forcing one; a following "yes" ac
 
 And the handover is **delivered, not just filed**. The doctor opens `/live?role=doctor`, which
 rings when a call needs someone, and takes the call with her own microphone while the caller is
-still on the line. See [Human handover](#human-handover-and-amazon-connect).
+still on the line. See [Human handover](#human-handover).
 
 
 ---
@@ -346,8 +355,9 @@ accumulated appointments, slots, waitlist entries and call sessions, and surface
 | Decision | What triggered it |
 | --- | --- |
 | **Gap fill** | An open slot matches someone on the waitlist |
+| **Unoffered service demand** | Callers keep naming a service the clinic does not offer |
 | **Schedule gap** | The same weekday is persistently empty at low utilisation |
-| **Unmet demand** | Callers keep asking for a service the clinic does not offer |
+| **Unmet demand** | Several patients are waitlisted for one service the clinic *does* offer |
 | **No-show trend** | The no-show rate moved against the preceding equal-length period |
 
 Approving the **gap-fill** decision is the one with a real automated action: it books the
@@ -495,7 +505,7 @@ deliberately took off the calendar.
 
 ---
 
-## Human handover and Amazon Connect
+## Human handover
 
 When a caller asks for a person, becomes distressed, or asks anything clinical, the agent
 stops. `flag_for_human` records the reason, the transcript so far, and the signals that
@@ -556,7 +566,11 @@ The **audio is the record of authority** and the text is a searchable aid. Recog
 not perfect — one verification run turned "I can see you tomorrow morning at ten o'clock"
 into "I can see it at 10 o'clock" — so the exact conversation is always the WAV.
 
-### Amazon Connect — implemented, blocked by the account
+### Amazon Connect — NOT used, and cannot be in this account
+
+**This project does not use Amazon Connect.** The handover described above runs entirely in
+the browser. What follows is the design and code for a phone-line version that could not be
+switched on, kept here so the reasoning is on record.
 
 Connect would put both ends on a real phone number instead of browser tabs. The code is
 written and covered by 23 tests, activating on `CLINIC_CONNECT_INSTANCE_ID` and
@@ -770,7 +784,7 @@ means no patient audio is captured.
 
 ## Testing
 
-**1,758 tests. `mypy --strict` clean across 112 source files.** The whole suite runs
+**1,787 tests. `mypy --strict` clean across 114 source files.** The whole suite runs
 offline against in-memory stores and a fake voice stream — no credentials, no cost.
 
 ```powershell

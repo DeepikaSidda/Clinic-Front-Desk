@@ -134,8 +134,9 @@ Behind it, a second agent nobody talks to. **Practice Intelligence** runs on a s
 | Decision | What triggered it |
 | --- | --- |
 | Gap fill | An open slot matches someone on the waitlist |
+| Unoffered service demand | Callers keep naming a service the clinic does not offer |
 | Schedule gap | The same weekday is persistently empty at low utilisation |
-| Unmet demand | Callers keep asking for a service the clinic does not offer |
+| Unmet demand | Several patients are waitlisted for one service the clinic *does* offer |
 | No-show trend | The no-show rate moved against the preceding equal-length period |
 
 Approving the gap-fill books the earliest matching waitlisted patient and removes their entry. That is what makes this more than an answering machine: the calls become data, and the data becomes suggestions about how the practice runs.
@@ -192,7 +193,7 @@ The part that mattered most for a clinic is the **tool contract**. A Python func
 
 Every tool returns the same shape — success with a value, or failure with a typed error — so the model always receives a discriminated result rather than a stringly-typed maybe. Each tool is closed over its data-layer stores before the model ever sees it, so no store, table name or credential appears in the model-facing schema. The model can call `book_appointment`; it cannot reach the database.
 
-Strands also let us keep the model **swappable and injectable**. The voice adapter builds a real `BidiNovaSonicModel` in production, but accepts an injected model or a fully-formed agent instead — which is exactly how 1,758 tests run without touching Bedrock. The real Strands and Bedrock imports happen lazily inside `start()` rather than at module import, so the rest of the system imports and tests cleanly on a machine with no AWS credentials and no native AWS Common Runtime build.
+Strands also let us keep the model **swappable and injectable**. The voice adapter builds a real `BidiNovaSonicModel` in production, but accepts an injected model or a fully-formed agent instead — which is exactly how 1,787 tests run without touching Bedrock. The real Strands and Bedrock imports happen lazily inside `start()` rather than at module import, so the rest of the system imports and tests cleanly on a machine with no AWS credentials and no native AWS Common Runtime build.
 
 **The tool boundary is the architecture.** Twelve patient-facing tools: `match_offered_service`, `suggest_service_for_problem`, `check_availability`, `register_patient`, `lookup_patient`, `list_appointments`, `book_appointment`, `reschedule`, `cancel`, `add_to_waitlist`, `answer_faq`, `flag_for_human`. Two are deliberately absent — `fill_gap_from_waitlist` is doctor-approved only, and `analyze_patterns` belongs to Practice Intelligence.
 
@@ -331,7 +332,7 @@ A test that passes while proving nothing is worse than no test, because it buys 
 
 **It is live, and anyone can call it.** Not a video, not a localhost demo — a public HTTPS URL with a real certificate, real Nova Sonic audio and real DynamoDB writes. Verified end to end: `/ping`, the page, the assets, a genuine `wss://` handshake returning **101 Switching Protocols** through CloudFront, and a `session_started` frame that only arrives *after* the Bedrock stream opens.
 
-**1,758 tests. `mypy --strict` clean across 112 source files.** All offline, no credentials needed — including property-based tests with Hypothesis and latency tests asserting response start $\le 1.5$ s and barge-in stop $\le 500$ ms.
+**1,787 tests. `mypy --strict` clean across 114 source files.** All offline, no credentials needed — including property-based tests with Hypothesis and latency tests asserting response start $\le 1.5$ s and barge-in stop $\le 500$ ms.
 
 **Fifty simultaneous callers, zero failures.** Every one got its own Nova Sonic session and its own distinct session id, with no Bedrock throttling: 3, 5, 10 and 50 concurrent calls against the live public URL. Greeting latency held near half a second at five callers and about four seconds at fifty — which we traced to thread-pool queueing on two vCPUs rather than anything in the model path.
 
