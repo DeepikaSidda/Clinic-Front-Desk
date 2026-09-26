@@ -398,6 +398,7 @@ class DashboardWebApp:
                 ),
                 provider_id=resolved_provider,
                 day=resolved_day,
+                patient_names=self._patient_names(resolved_provider, resolved_day),
             )
         return render_schedule_view(
             view_model, schedule_endpoint=DEFAULT_SCHEDULE_ENDPOINT
@@ -885,6 +886,33 @@ class DashboardWebApp:
                 f"{'' if skipped == 1 else 's'} were left as they are."
             )
         return detail, None
+
+    def _patient_names(self, provider_id: str, day: str) -> dict[str, str]:
+        """``patient id -> name`` for everyone booked on that day.
+
+        The schedule region used to print the raw patient id, so a doctor's day
+        read as a column of hex. Resolved here rather than in the view-model
+        builder, which is pure by contract, and per render rather than copied onto
+        the appointment, so correcting a misheard name fixes every row at once.
+
+        A lookup that fails leaves that patient out and the row falls back to the
+        id: a schedule showing the time is taken is worth more than no schedule.
+        """
+        if not provider_id:
+            return {}
+        booked = self.app.bff.schedule_for_day(provider_id, day, self.service_names())
+        if is_err(booked):
+            return {}
+
+        names: dict[str, str] = {}
+        for appointment in booked.value.appointments:
+            patient_id = getattr(appointment, "patient_id", "")
+            if not patient_id or patient_id in names:
+                continue
+            found = self.app.stores.patients.get(patient_id)
+            if is_ok(found) and found.value is not None and found.value.name:
+                names[patient_id] = found.value.name
+        return names
 
     def _slot_holders(self, provider_id: str, day: str) -> dict[str, tuple[str, str]]:
         """``slot_id -> (patient name, patient id)`` for the day's booked slots.

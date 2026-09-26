@@ -15,6 +15,7 @@ from clinic_front_desk.dashboard.bff import ScheduleView
 from clinic_front_desk.dashboard.schedule_view import (
     SCHEDULE_EMPTY_MESSAGE,
     SCHEDULE_ERROR_MESSAGE,
+    UNNAMED_PATIENT,
     build_schedule_view_model,
     build_schedule_view_model_from_result,
     render_schedule_view,
@@ -208,3 +209,77 @@ def test_render_escapes_caller_supplied_text() -> None:
 
     assert "<script>alert(1)</script>" not in html_out
     assert "&lt;script&gt;" in html_out
+
+
+def test_appointment_row_names_the_patient_when_a_name_is_supplied() -> None:
+    # The doctor's day has to say who is arriving. Rendering the raw patient id
+    # gave her a column of hex, which is what this guards against.
+    vm = build_schedule_view_model(
+        _view([_appointment("a-1", "09:00", patient_id="pat-9")], []),
+        patient_names={"pat-9": "Sailaja Devi"},
+    )
+
+    assert vm.appointments[0].patient_display == "Sailaja Devi"
+    # The id stays on the row: it is the link target and the reconciliation key.
+    assert vm.appointments[0].patient_id == "pat-9"
+
+    html_out = render_schedule_view(vm)
+    assert "Sailaja Devi" in html_out
+    # The id must still be reachable by the client, as an attribute not as text.
+    assert 'data-patient-id="pat-9"' in html_out
+    assert ">pat-9<" not in html_out
+
+
+def test_appointment_row_falls_back_to_the_id_when_the_name_is_unknown() -> None:
+    # A lookup that failed must not blank the row: the doctor still needs to see
+    # the time is taken, and the id is enough to match against the patient list.
+    vm = build_schedule_view_model(
+        _view([_appointment("a-1", "09:00", patient_id="pat-9")], []),
+        patient_names={"someone-else": "Not Them"},
+    )
+
+    assert vm.appointments[0].patient_display == "pat-9"
+
+
+def test_appointment_row_says_unnamed_when_there_is_no_patient_id_at_all() -> None:
+    # An empty cell reads as a rendering fault; this reads as missing data.
+    vm = build_schedule_view_model(
+        _view([_appointment("a-1", "09:00", patient_id="")], []),
+    )
+
+    assert vm.appointments[0].patient_display == UNNAMED_PATIENT
+
+
+def test_patient_names_are_optional_so_the_builder_stays_callable_without_stores() -> None:
+    # The builder is pure by contract. Omitting the map must not raise.
+    vm = build_schedule_view_model(
+        _view([_appointment("a-1", "09:00", patient_id="pat-9")], [])
+    )
+
+    assert vm.appointments[0].patient_display == "pat-9"
+
+
+def test_a_patient_name_containing_markup_is_escaped() -> None:
+    # Names come from speech transcription and from the doctor's own edits, so
+    # they are caller-supplied text on a page the clinic trusts.
+    vm = build_schedule_view_model(
+        _view([_appointment("a-1", "09:00", patient_id="pat-9")], []),
+        patient_names={"pat-9": '<script>alert("x")</script>'},
+    )
+
+    html_out = render_schedule_view(vm)
+    assert "<script>" not in html_out
+    assert "&lt;script&gt;" in html_out
+
+
+def test_from_result_passes_patient_names_through() -> None:
+    # The route builds from a StoreResult, so the map has to survive that path —
+    # otherwise the fix works in the builder and not on the page.
+    vm = build_schedule_view_model_from_result(
+        Ok(_view([_appointment("a-1", "09:00", patient_id="pat-9")], [])),
+        provider_id=PROVIDER,
+        day=DAY,
+        patient_names={"pat-9": "Sailaja Devi"},
+    )
+
+    assert vm.appointments[0].patient_display == "Sailaja Devi"

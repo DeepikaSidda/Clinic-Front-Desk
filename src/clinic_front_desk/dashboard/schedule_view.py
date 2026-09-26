@@ -39,6 +39,7 @@ defaults the day picker to today and re-fetches when the doctor picks another.
 from __future__ import annotations
 
 import html
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
@@ -119,7 +120,13 @@ class AppointmentRowViewModel:
         appointment_id: The appointment id (stable key for reconciliation).
         time: The appointment clock time, trimmed to ``HH:MM``.
         service: The booked service name.
-        patient_id: The associated patient identifier.
+        patient_id: The associated patient identifier, kept for linking and
+            reconciliation rather than for display.
+        patient_display: Who the row is shown as: the patient's name when the
+            caller supplied one, else the id, else a placeholder. A doctor reading
+            her day needs a name — a row saying
+            ``c6026264f5b44f9b92e32349333e235d`` tells her nothing about who is
+            arriving at nine.
         status: The raw appointment status value.
         status_label: Human-readable label for ``status``.
     """
@@ -130,6 +137,7 @@ class AppointmentRowViewModel:
     patient_id: str
     status: str
     status_label: str
+    patient_display: str = ""
 
 
 @dataclass(frozen=True)
@@ -175,15 +183,37 @@ class ScheduleViewModel:
     has_error: bool = False
 
 
-def _appointment_row(appointment: Appointment) -> AppointmentRowViewModel:
-    """Shape a single :class:`Appointment` into a row view-model."""
+#: Shown when an appointment has no patient id and no resolvable name. Better than
+#: an empty cell, which reads as a rendering fault rather than missing data.
+UNNAMED_PATIENT = "Unnamed patient"
+
+
+def _appointment_row(
+    appointment: Appointment,
+    patient_names: Mapping[str, str] | None = None,
+) -> AppointmentRowViewModel:
+    """Shape a single :class:`Appointment` into a row view-model.
+
+    ``patient_names`` maps patient id to name. Supplied by the caller rather than
+    looked up here, because resolving a name needs the patient store and this
+    builder is pure — the same reason
+    :func:`~clinic_front_desk.dashboard.components.day_schedule.build_day_schedule_view_model`
+    takes its ``holders`` argument. Names are resolved per render rather than
+    copied onto the appointment, so a patient who corrects their name is not left
+    with the old one printed across their bookings.
+    """
+    patient_id = appointment.patient_id
+    name = (patient_names or {}).get(patient_id, "")
     return AppointmentRowViewModel(
         appointment_id=appointment.id,
         time=_appointment_time(appointment),
         service=appointment.service,
-        patient_id=appointment.patient_id,
+        patient_id=patient_id,
         status=str(appointment.status),
         status_label=_status_label(AppointmentStatus(appointment.status)),
+        # Fall back to the id rather than to nothing: an unresolved name still has
+        # to identify the row well enough to be matched against the patient list.
+        patient_display=name or patient_id or UNNAMED_PATIENT,
     )
 
 
@@ -198,7 +228,11 @@ def _open_slot_row(slot: Slot) -> OpenSlotRowViewModel:
     )
 
 
-def build_schedule_view_model(view: ScheduleView) -> ScheduleViewModel:
+def build_schedule_view_model(
+    view: ScheduleView,
+    *,
+    patient_names: Mapping[str, str] | None = None,
+) -> ScheduleViewModel:
     """Build the schedule view-model from a BFF :class:`ScheduleView` (Req 15.1).
 
     Orders appointments by their clock time and open slots by their ISO start so
@@ -208,12 +242,15 @@ def build_schedule_view_model(view: ScheduleView) -> ScheduleViewModel:
 
     Args:
         view: The :class:`ScheduleView` from ``DashboardBFF.schedule_for_day``.
+        patient_names: Optional ``patient id -> name`` map so each row names the
+            person rather than printing their id. Omitted, rows fall back to the
+            id, which keeps this callable with no stores to hand.
 
     Returns:
         A :class:`ScheduleViewModel` ready for the HTML partial to render.
     """
     appointments = [
-        _appointment_row(a)
+        _appointment_row(a, patient_names)
         for a in sorted(view.appointments, key=lambda a: a.time)
     ]
     open_slots = [
@@ -236,6 +273,7 @@ def build_schedule_view_model_from_result(
     *,
     provider_id: str = "",
     day: ISODate = "",
+    patient_names: Mapping[str, str] | None = None,
 ) -> ScheduleViewModel:
     """Build the view-model from the BFF's ``schedule_for_day()`` result.
 
@@ -262,7 +300,7 @@ def build_schedule_view_model_from_result(
             empty_message=SCHEDULE_ERROR_MESSAGE,
             has_error=True,
         )
-    return build_schedule_view_model(result.value)
+    return build_schedule_view_model(result.value, patient_names=patient_names)
 
 
 def _render_appointment_row(row: AppointmentRowViewModel) -> str:
@@ -273,7 +311,9 @@ def _render_appointment_row(row: AppointmentRowViewModel) -> str:
         f'data-status="{html.escape(row.status, quote=True)}">'
         f'<span class="schedule-view__time">{html.escape(row.time)}</span>'
         f'<span class="schedule-view__service">{html.escape(row.service)}</span>'
-        f'<span class="schedule-view__patient">{html.escape(row.patient_id)}</span>'
+        f'<span class="schedule-view__patient" '
+        f'data-patient-id="{html.escape(row.patient_id, quote=True)}">'
+        f"{html.escape(row.patient_display or row.patient_id)}</span>"
         f'<span class="schedule-view__status">{html.escape(row.status_label)}</span>'
         "</li>"
     )
