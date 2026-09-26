@@ -21,7 +21,9 @@ Open the three pages side by side and watch a single call move across all of the
 | [Start a call](https://d21u7cmj563imv.cloudfront.net/voice) | [See the appointments](https://d21u7cmj563imv.cloudfront.net/slots?role=doctor) | [Watch live calls](https://d21u7cmj563imv.cloudfront.net/live?role=doctor&k=POsBgStYRRE64ZBytbrGdWvelnWXhrLd6jh6oLT3Af8) |
 | Book, reschedule, cancel, ask anything | The day's grid — watch a slot get taken | Take over a call in your own voice |
 
-**Book a slot on a call and watch it get taken.** Open the appointment page and note a time still marked **open** — say `11:00`. On the caller page, press Start call and ask for it: *"I'd like to book an ENT consultation at eleven this morning."* Give a name and mobile when asked. Reload the appointment page and that slot reads booked, with your name on the cell.
+**The diary is filled for 26 September to 2 October 2026**, 17 booked and 5 open on each of those days, so add `&day=2026-09-26` to the appointment link to land on one. Sunday 27 September is empty because it is the clinic holiday — worth testing on its own, since asking the agent for that Sunday gets you "we're closed, the nearest I have is Monday" rather than a shrug.
+
+**Book a slot on a call and watch it get taken.** Open the appointment page and note a time still marked **open** — on 26 September those are 11:00, 12:30, 14:30, 16:30 and 18:00. On the caller page, press Start call and ask for one: *"I'd like to book an ENT consultation at half past twelve today."* Give a name and mobile when asked. Reload the appointment page and that cell reads booked, with your name on it.
 
 The agent was held to the calendar the whole way. It only offered times the doctor had actually published, it checked the slot was still open before writing, and it read the booking back to you only after the write returned. Ask for a time already taken and it says so rather than double-booking you. **Cancel & notify** on that cell then cancels the appointment, frees the slot, and texts the patient.
 

@@ -23,35 +23,97 @@ Open the three pages side by side and watch a single call move across all of the
 | **[Start a call](https://d21u7cmj563imv.cloudfront.net/voice)** | **[See the appointments](https://d21u7cmj563imv.cloudfront.net/slots?role=doctor)** | **[Watch live calls](https://d21u7cmj563imv.cloudfront.net/live?role=doctor&k=POsBgStYRRE64ZBytbrGdWvelnWXhrLd6jh6oLT3Af8)** |
 | Book, reschedule, cancel, ask anything | The day's grid — watch a slot get taken | Take over a call in your own voice |
 
-### Book a slot on a call, and watch it get taken
+> **Which days have data.** The diary is filled for **Saturday 26 September to Friday 2 October
+> 2026** — 17 booked and 5 open on each of those days. **Sunday 27 September is empty on
+> purpose**: it is the clinic holiday, and that is worth testing too — ask the agent for that
+> Sunday and it tells you the clinic is closed and offers the Monday instead. From **3 October**
+> onwards every slot is still open. Every page below accepts `&day=YYYY-MM-DD`, so you can jump
+> straight to a date.
 
-This is the thing worth seeing, and it takes a minute:
+You need a **microphone** and a **Chromium-based browser** (Chrome, Edge, Brave) for the two
+pages that carry audio. The doctor's pages need `?role=doctor`, and the live console also needs
+the `k` secret — both are already in the links above.
 
-1. Open the **appointment page** and note one of the times still marked **open** — say `11:00`.
-2. On the **caller page**, press **Start call** and ask for it: *"I'd like to book an ENT
-   consultation at eleven this morning."* Give a name and mobile when asked.
-3. **Reload the appointment page.** That slot now reads **booked**, with your name on the cell.
+### 1. Caller page — talk to the agent
 
-The agent held the calendar to it the whole way: it only offered times the doctor had actually
-published, it checked the slot was still open before writing, and it read the booking back to
-you only after the write returned. Ask for a time that is already taken and it will say so
-rather than double-booking you.
+**https://d21u7cmj563imv.cloudfront.net/voice**
 
-The appointment page is deliberately plain — server-rendered, no JavaScript at all — so it
-needs that reload. If you want to watch a booking land **without touching anything**, open the
-[dashboard](https://d21u7cmj563imv.cloudfront.net/?role=doctor) alongside it: its schedule,
-call log and metrics subscribe to a server-sent change stream and redraw themselves within
-five seconds of the write.
+Press **Start call**, allow the microphone, and speak. The transcript builds on screen as you
+go. Worth trying, roughly in this order:
 
-From there, **Cancel & notify** on that cell cancels the appointment, frees the slot again, and
-texts the patient.
+| Say this | What should happen |
+| --- | --- |
+| *"What time do you open?"* | Hours read from the clinic's configuration, not invented |
+| *"Where are you?"* | Address and directions, from the doctor's uploaded PDF |
+| *"How much is a consultation?"* | *"An ENT Consultation costs 500 rupees."* Rupees, not dollars |
+| *"What's your phone number?"* | The clinic's own number, `1234567890` |
+| *"I'd like to book a hearing test"* | Offers **three** dated slots, not a wall of times |
+| *"Sunday the twenty-seventh"* | Says it is the clinic holiday and offers the Monday |
+| *"My nose is blocked — which service?"* | Reads the doctor's **own written** routing advice |
+| *"My ear hurts, what's wrong with me?"* | **Refuses to diagnose** and offers a human |
+| Interrupt it mid-sentence | Playback stops immediately, under 500 ms |
+| *"Can I speak to a person?"* | Hands over, and the live console rings |
 
-**To see the handover**, keep the caller page and the live call page open. Start a call, say
-*"can I speak to a person"*, and the live console rings. Press **🎤 Take over & talk** and you
-are on the call in your own voice, while the agent goes quiet.
+To book it asks for your name and mobile, then reads back a **five-character code** like
+`SI307` — first letter of your first name, last letter of your surname, last three digits of
+your mobile. Quote it on a second call and it finds you instantly. Say the number however you
+like: `9900012307` and *"nine nine zero zero zero one two three zero seven"* both work.
 
-The doctor's pages need `?role=doctor`, already in the links above, and the live console also
-needs the `k` secret. Speaking needs a microphone and a Chromium-based browser.
+### 2. Appointment page — book a slot on a call, then see it taken
+
+**[https://d21u7cmj563imv.cloudfront.net/slots?role=doctor&day=2026-09-26](https://d21u7cmj563imv.cloudfront.net/slots?role=doctor&day=2026-09-26)**
+
+The day as a grid — Morning, Afternoon, Evening — each cell showing its time, its service, and
+when taken, the patient's name.
+
+1. Find a cell marked **open**. On 26 September those are `11:00`, `12:30`, `14:30`, `16:30`
+   and `18:00`.
+2. On the caller page, ask for one: *"I'd like to book an ENT consultation at half past twelve
+   today."* Give a name and mobile when asked.
+3. **Reload the appointment page.** That cell now reads **booked**, with your name on it.
+
+Then try to break it:
+
+- **Ask for a time already taken** — say `10:00`. It tells you that time is not available
+  instead of double-booking. The slot is re-checked as still open at the moment of writing, so
+  two callers racing for one slot cannot both get it.
+- **Ask for something that was never published** — *"can I come at 3am?"* No patient-facing tool
+  can create a slot, so it cannot invent one however hard you push.
+- **Press Cancel & notify** on a booked cell. The appointment is cancelled, the slot reopens,
+  and the patient is texted. The cancellation is written to the database *before* the SMS is
+  attempted, and a failed text is reported loudly rather than swallowed.
+- **Press View patient** to see the record the call created — age, blood group, height, weight —
+  and correct anything the agent mis-heard.
+
+This page is deliberately plain server-rendered HTML with no JavaScript, which is why it needs
+the reload. To watch a booking land **without touching anything**, open the
+[dashboard](https://d21u7cmj563imv.cloudfront.net/?role=doctor) beside it: its schedule, call
+log and metrics subscribe to a server-sent change stream and redraw within five seconds of the
+write. That page also holds the **transcript and audio recording of every call**, and the
+Decisions the background agent has raised.
+
+### 3. Live call page — take a call in your own voice
+
+**[https://d21u7cmj563imv.cloudfront.net/live?role=doctor&k=POsBgStYRRE64ZBytbrGdWvelnWXhrLd6jh6oLT3Af8](https://d21u7cmj563imv.cloudfront.net/live?role=doctor&k=POsBgStYRRE64ZBytbrGdWvelnWXhrLd6jh6oLT3Af8)**
+
+Open this in one tab and the caller page in another:
+
+1. Start a call and say *"can I speak to a person."*
+2. This page **rings** and puts a count in the tab title. The call appears with the reason it
+   escalated.
+3. Press **🎤 Take over & talk**. Your microphone goes to the caller and their voice comes back
+   — a real two-way conversation, in your own voice. The agent stops *listening*, not just
+   speaking, so it will not answer questions meant for you.
+4. Or type a line and press **Say**: Amazon Polly speaks it down the caller's existing channel.
+5. Press **Hand back** and the agent resumes.
+
+Leave it ringing and the caller is still not abandoned: at 12 seconds they hear that someone is
+being fetched, and at 45 an apology with the choice of leaving a number or calling back. Close
+this tab mid-call and the call returns to the agent rather than to dead air.
+
+Afterwards the whole conversation is stored as one **stereo** recording — caller on the left
+channel, clinic on the right — and Amazon Transcribe appends a labelled transcript to the call
+record, visible in the dashboard's call log.
 
 > **This demo host is open on purpose, so the whole system can be tried end to end.** The
 > dashboard reads the clinic's real history — patient records, transcripts, call recordings —

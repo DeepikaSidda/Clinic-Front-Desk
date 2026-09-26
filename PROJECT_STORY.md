@@ -36,15 +36,31 @@ Everything interesting we built came out of defending that line.
 | Book, reschedule, cancel, ask anything | The day's grid — watch a slot get taken | Take over a call in your own voice |
 
 **Try this.** Open the appointment page, pick a time still marked **open**, then ring the agent
-and ask for it — *"I'd like to book an ENT consultation at eleven this morning."* Reload the
-page and that slot reads booked, with your name on the cell. Ask for a time already taken and
-the agent says so rather than double-booking you: it only ever offers slots the doctor
-published, and it checks the slot is still open before writing.
+and ask for it — *"I'd like to book an ENT consultation at half past twelve today."* Reload the
+page and that cell reads booked, with your name on it.
+
+**The diary is filled for 26 September to 2 October 2026** — 17 booked and 5 open on each of
+those days, so add `&day=2026-09-26` to land on one. On 26 September the open times are 11:00,
+12:30, 14:30, 16:30 and 18:00. Sunday 27 September is empty because it is the clinic holiday,
+and that is worth testing on its own: ask the agent for that Sunday and it says the clinic is
+closed and offers you the Monday.
+
+Then push on it. Ask for a time already taken and it says so rather than double-booking — the
+slot is re-checked as still open at the moment of writing, so two callers racing for one slot
+cannot both get it. Ask to come at 3am and it cannot invent a slot, because no patient-facing
+tool can create one. Press **Cancel & notify** on a booked cell and the appointment is
+cancelled, the slot reopens, and the patient is texted.
 
 The appointment page is server-rendered with no JavaScript, hence the reload. The
 [dashboard](https://d21u7cmj563imv.cloudfront.net/?role=doctor) is the one that redraws itself:
 its schedule, call log and metrics subscribe to a server-sent change stream and update within
-five seconds of the write, no refresh needed.
+five seconds of the write, no refresh needed. It also holds every call's transcript and
+recording.
+
+For the handover, keep the caller page and the
+[live console](https://d21u7cmj563imv.cloudfront.net/live?role=doctor&k=POsBgStYRRE64ZBytbrGdWvelnWXhrLd6jh6oLT3Af8)
+open together, start a call and say *"can I speak to a person."* The console rings, and
+**🎤 Take over & talk** puts you on the line in your own voice while the agent stops listening.
 
 The demo host publishes these pages deliberately; a real clinic's deployment sets
 `CLINIC_VOICE_ONLY=1` and those routes are not registered at all.
