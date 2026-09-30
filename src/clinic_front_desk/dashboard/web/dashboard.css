@@ -2878,3 +2878,214 @@ a.day-schedule__cell-action:hover {
     transform: none;
   }
 }
+
+/* ==========================================================================
+ * 9. Density pass — fitting a clinic's day on a screen
+ *
+ * Section 8 fixed the palette. This fixes the thing a doctor actually complains
+ * about, which was never the colour: how little the page says per screen.
+ *
+ * What it looked like with real data in it. The page title took the top third of
+ * the fold. Beneath it, twenty-two open slots stacked one per row — each one a
+ * bordered card repeating "ENT Consultation" — so a normal Tuesday scrolled for
+ * four screens. Beside them sat an "Appointments" column holding the words "No
+ * appointments" and nothing else, taking exactly half the width. And the call log
+ * rendered every escalation with a red left rule and a red wash, which is a good
+ * way to mark one escalation among twenty calls and a terrible way to render eight
+ * in a row: the panel stopped reading as a clinic and started reading as an
+ * incident board.
+ *
+ * Every rule here is layout and emphasis. No markup changes, no new classes, and
+ * the status colours from section 8 are left alone — the problem was never that
+ * escalations were marked, it was that nothing else could be seen past them.
+ * ========================================================================== */
+
+/* -- Give the content the fold ------------------------------------------- *
+ * The gradient-clipped heading is nice once. At 2.35rem with a 24px margin under
+ * it, on a laptop, it costs a third of the first screen to say a thing the app bar
+ * already says. */
+.dashboard-shell__title,
+.documents-title,
+.onboarding-wizard h1,
+.voice-client h1 {
+  font-size: clamp(1.35rem, 1.1rem + 0.9vw, 1.75rem);
+  margin-bottom: var(--sp-3);
+}
+
+/* -- Open slots: a grid, not a column ------------------------------------ *
+ * A published day is twenty-two half-hours. As rows that is four screens of
+ * scrolling to learn one fact — which times are free — and the answer is a shape,
+ * not a list. As a grid it is four rows, and the gaps are visible at a glance.
+ *
+ * auto-fill rather than a fixed count so this holds from a phone to a wide
+ * monitor without a media query per breakpoint. */
+.schedule-view__slot-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(8.5rem, 1fr));
+  gap: var(--sp-2);
+}
+
+/* Each slot becomes a chip: time first and prominent, service demoted to a
+ * subtitle. The service is identical on every slot of a published day, so setting
+ * it at the same weight as the time made twenty-two rows of noise around the one
+ * word that differs. */
+.schedule-view__slot {
+  grid-template-columns: 1fr;
+  gap: 0;
+  padding: var(--sp-2) var(--sp-3);
+  align-items: start;
+}
+
+.schedule-view__slot .schedule-view__time {
+  font-weight: 650;
+  font-size: var(--fs-sm);
+}
+
+.schedule-view__slot .schedule-view__service {
+  font-size: var(--fs-xs);
+  color: var(--c-text-subtle);
+  /* One line. A long service name must not make one chip taller than its row. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* -- Appointments lead, slots follow ------------------------------------- *
+ * These are not equal halves. Who is coming in is the day; which slots are spare
+ * is the margin around it. An empty appointments column has no business holding
+ * half the width, and a full one deserves more than half. */
+@media (min-width: 60rem) {
+  .schedule-view__lists {
+    grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+  }
+}
+
+/* -- Appointment rows: one line each ------------------------------------- */
+.schedule-view__appointment {
+  padding: var(--sp-2) var(--sp-3);
+  gap: var(--sp-1) var(--sp-3);
+}
+
+/* -- The call log: mark escalations, do not drown in them ---------------- *
+ * The red pill stays; it is the signal, and it is legible against everything
+ * around it. What goes is the per-row wash and the 3px rule, which were designed
+ * for a rare event and applied to a common one. Eight consecutive red-tinted
+ * blocks carry less information than eight pills do, because a difference you
+ * cannot see is not a difference.
+ *
+ * The rule survives at 2px and without the tint, so a scan still finds them. */
+.call-activity-log__row[data-interaction="escalated"] {
+  border-left-width: 2px;
+  background: transparent;
+  margin-inline: 0;
+  padding-inline: var(--sp-2);
+  border-radius: 0;
+}
+
+.call-activity-log__row[data-interaction="escalated"]:hover {
+  background: color-mix(in srgb, var(--c-negative) 7%, transparent);
+}
+
+/* Tighter rows. At var(--sp-3) top and bottom, six entries filled the panel and
+ * the seventh — often the one being looked for — was below the fold. */
+.call-activity-log__row {
+  padding-block: var(--sp-2);
+}
+
+/* -- Long lists scroll inside their panel -------------------------------- *
+ * Without this the tallest region sets the height of the page, so reading the
+ * bottom of the call log means scrolling the schedule out of sight. The point of
+ * a dashboard is that the regions are visible together.
+ *
+ * A generous cap, and only on wide screens: on a phone the regions are stacked and
+ * an inner scrollbar inside an outer one is worse than a long page. */
+@media (min-width: 60rem) {
+  .call-activity-log__list,
+  .schedule-view__appointment-list {
+    max-height: 26rem;
+    overflow-y: auto;
+    /* Stops the last row sitting flush against the panel edge mid-scroll. */
+    padding-right: var(--sp-1);
+    overscroll-behavior: contain;
+  }
+}
+
+/* -- Empty states should be small --------------------------------------- *
+ * "No appointments" was rendered in a full-height bordered box, which gives an
+ * absence the same visual weight as content. */
+.schedule-view__empty-row,
+.call-activity-log__empty {
+  padding: var(--sp-2) var(--sp-3);
+  font-size: var(--fs-sm);
+  color: var(--c-text-subtle);
+}
+
+/* ==========================================================================
+ * 10. Dashboard layout — put the summary where a summary goes
+ *
+ * The grid was two columns and the four regions were left to auto-place in
+ * document order. Document order is schedule, call activity, impact metrics,
+ * decisions — so the browser filled column one with **schedule then metrics**, and
+ * column two with **activity then decisions**.
+ *
+ * The consequence is the whole complaint about this page. The impact metrics are
+ * the only region that answers "how is the practice doing" — hours saved,
+ * appointments recovered, the no-show rate — and they were parked underneath a
+ * twenty-two-slot schedule, which means below the fold, which means nobody read
+ * them. Meanwhile the two tallest regions sat side by side, so the page was as tall
+ * as the taller of them and the bottom of both needed scrolling.
+ *
+ * Fixed by naming the areas instead of letting order decide. Metrics become a
+ * full-width strip across the top where a dashboard's numbers belong; the schedule
+ * takes the tall left column it needs; activity and decisions stack down the right.
+ * Nothing in the markup moves — the regions are placed by their ``data-view``,
+ * which the shell renderer already emits, so the role gate still decides which
+ * regions exist and a missing one simply leaves its area empty.
+ * ========================================================================== */
+
+@media (min-width: 60rem) {
+  .dashboard-shell {
+    grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr);
+    grid-template-areas:
+      "title    title"
+      "metrics  metrics"
+      "schedule activity"
+      "schedule decisions";
+    /* The right column's two regions size to their content; the schedule spans
+     * both rows and takes the slack. Without this the schedule stretches to match
+     * whatever the activity log happens to be, which is arbitrary. */
+    grid-template-rows: auto auto auto 1fr;
+  }
+
+  .dashboard-shell__title {
+    grid-area: title;
+  }
+
+  .dashboard-shell__view[data-view="impact_metrics"] {
+    grid-area: metrics;
+  }
+
+  .dashboard-shell__view[data-view="schedule"] {
+    grid-area: schedule;
+  }
+
+  .dashboard-shell__view[data-view="call_activity"] {
+    grid-area: activity;
+  }
+
+  .dashboard-shell__view[data-view="decisions"] {
+    grid-area: decisions;
+  }
+
+  /* The metrics strip is a row of numbers, not a panel of prose. Given the full
+   * width it should read as a band across the top rather than a tall card. */
+  .dashboard-shell__view[data-view="impact_metrics"] {
+    padding-block: var(--sp-4);
+  }
+}
+
+/* The assistant is denied metrics and decisions (role_gate.py enumerates their
+ * views rather than subtracting), so their page has only two regions. Named areas
+ * that no element claims collapse to nothing, which leaves the schedule and the
+ * activity log side by side — correct, and no extra rule needed. Stated here
+ * because the first instinct on reading the block above is that it must break. */
