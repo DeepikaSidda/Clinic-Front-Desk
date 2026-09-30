@@ -95,10 +95,25 @@
           if (!resolved) restore(card.id, (result && result.error) || null);
           // On success we keep the optimistic removal; the confirming
           // ChangeEvent (kind:"updated") simply clears the pending entry.
+          // Approving a gap-fill books a real patient, so the server reports
+          // whether it managed to tell them. Shown even on success, because the
+          // case that matters is "booked, but NOT texted" — the booking stands and
+          // the doctor has to ring them herself.
+          if (resolved) showNotice(result.notified);
         })
         .catch(function (err) {
           restore(card.id, err && err.message ? err.message : "Action failed");
         });
+    }
+
+    // Report what happened to the patient after a Decision resolved. Only
+    // gap-fill sends anything, so `notified` is absent for every other kind and
+    // this leaves the previous notice alone rather than blanking it.
+    function showNotice(text) {
+      const noticeEl = root.querySelector("#decisions-feed-notice");
+      if (!noticeEl || typeof text !== "string" || text === "") return;
+      noticeEl.textContent = text;
+      noticeEl.hidden = false;
     }
 
     // Reconcile a failed action by restoring the card with an error (Req 14.6).

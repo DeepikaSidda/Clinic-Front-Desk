@@ -42,6 +42,18 @@
     {cards}
   </ul>
 
+  <!-- What happened *after* a Decision resolved. Approving a gap-fill books a real
+       person who is not on the phone to be told, so the send outcome has to land
+       somewhere the doctor sees: a successful booking whose text failed needs her to
+       ring them, and she will not if nothing says so. Outlives the card, because the
+       card is correctly removed the moment the Decision resolves. -->
+  <p
+    id="decisions-feed-notice"
+    class="decisions-feed__empty decisions-feed__notice"
+    role="status"
+    hidden
+  ></p>
+
   <!-- Card template cloned by decisions_feed.js for each Decision. -->
   <template id="decisions-feed-card-template">
     <li class="decision-card" data-decision-id="">

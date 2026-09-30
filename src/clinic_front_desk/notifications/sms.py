@@ -173,6 +173,41 @@ class SnsSmsSender:
         return SmsOutcome(sent=True, to=number, message_id=message_id)
 
 
+def gap_fill_message(
+    *,
+    patient_name: str,
+    service: str,
+    date: str,
+    time: str,
+    clinic_phone: str = "",
+) -> str:
+    """The text a waitlisted patient receives when a slot frees up and they get it.
+
+    The mirror image of :func:`cancellation_message`, and it exists for the same
+    reason. Approving a gap-fill books someone who asked weeks ago and has heard
+    nothing since; without this they are booked into Thursday at ten and never told,
+    so they do not come, and the clinic records a no-show against a patient who was
+    never informed they had an appointment.
+
+    Two things it must do that a cancellation need not. It has to say **why** they are
+    hearing from the clinic — an unexplained appointment reads like a mistake or a scam
+    — and it has to offer a way out, because being offered a slot is not the same as
+    being able to take it. A patient who cannot come has to be able to say so, or the
+    slot is wasted twice.
+    """
+    who = (patient_name or "").strip().split(" ")[0] or "there"
+    when = f"{date} at {time}".strip()
+    lines = [
+        f"Hello {who}, good news — a slot has opened up.",
+        f"You were on our waiting list, so we have booked your {service} for {when}.",
+    ]
+    if clinic_phone.strip():
+        lines.append(f"If that does not suit you, please call {clinic_phone.strip()}.")
+    else:
+        lines.append("If that does not suit you, please call the clinic.")
+    return " ".join(lines)
+
+
 def cancellation_message(
     *,
     patient_name: str,
@@ -211,5 +246,6 @@ __all__ = [
     "SmsSender",
     "SnsSmsSender",
     "cancellation_message",
+    "gap_fill_message",
     "to_e164",
 ]

@@ -37,6 +37,7 @@ from __future__ import annotations
 import asyncio
 import html
 import json
+import logging
 import mimetypes
 import os
 import re
@@ -91,6 +92,12 @@ from .app import ClinicFrontDeskApplication
 
 #: Directory holding the partials, stylesheet, and controller scripts.
 _WEB_DIR = Path(__file__).resolve().parent.parent / "dashboard" / "web"
+
+#: Warnings here are the ones a doctor needs to act on — a patient booked from the
+#: waiting list who could not be told, for instance. ``warning`` and not ``info``
+#: deliberately: the deployment's root logger sits at WARNING, so anything quieter
+#: never reaches ``/var/log/clinic.log`` and the gap goes unnoticed.
+logger = logging.getLogger(__name__)
 
 #: Endpoint the SSE ``ChangeEvent`` stream is served from.
 EVENTS_ENDPOINT = "/dashboard/events"
@@ -568,11 +575,78 @@ class DashboardWebApp:
             raise DashboardHttpError(
                 f"Unknown decision action {action!r}; expected 'approve' or 'dismiss'."
             )
+
+        # A gap-fill is the one Decision that books a real person, and that person is
+        # not on the phone to be told. Notified here rather than inside
+        # DecisionActionService, which holds only store interfaces by design — the same
+        # split as cancellation, where the write happens in the store and the telling
+        # happens at this layer.
+        notified: str | None = None
+        if result.gap_fill is not None:
+            notified = self._notify_gap_filled(result.gap_fill)
+
         return {
             "decision_id": result.decision_id,
             "outcome": result.outcome.value,
             "error": result.error,
+            # Present only for a gap-fill, and a sentence rather than a boolean: "not
+            # texted" is only actionable if the doctor is told to ring them instead.
+            "notified": notified,
         }
+
+    def _notify_gap_filled(self, gap_fill: Any) -> str:
+        """Text the waitlisted patient that a slot opened up and they now have it.
+
+        Never raises and never undoes the booking. The appointment is the clinic's
+        record of what is true; the message is a notification about it, so a failed
+        send degrades to a sentence the doctor can act on rather than rolling back a
+        slot that is now legitimately taken.
+        """
+        from clinic_front_desk.notifications import gap_fill_message
+
+        appointment = getattr(gap_fill, "appointment", None)
+        if appointment is None:
+            return "Booked, but there was no appointment to notify about."
+
+        patient_name = ""
+        patient_phone = ""
+        patient_id = getattr(appointment, "patient_id", "")
+        if patient_id:
+            patient = self.app.stores.patients.get(patient_id)
+            if is_ok(patient) and patient.value is not None:
+                patient_name = patient.value.name
+                patient_phone = patient.value.callback_phone
+
+        if not patient_phone:
+            # Worth saying loudly: this patient is now expected at a time they have no
+            # way of knowing about, and will be recorded as a no-show for it.
+            logger.warning(
+                "gap-fill booked appointment %s with no mobile on file; patient cannot be told",
+                getattr(appointment, "id", "?"),
+            )
+            return "No mobile number on file — please contact them directly."
+
+        contact = ""
+        config = self.app.stores.knowledge_base.get()
+        if is_ok(config) and config.value is not None:
+            contact = config.value.contact_phone or ""
+
+        body = gap_fill_message(
+            patient_name=patient_name,
+            service=appointment.service,
+            date=appointment.date,
+            time=appointment.time,
+            clinic_phone=contact,
+        )
+        outcome = self.sms_sender.send(patient_phone, body)
+        if outcome.sent:
+            return f"The patient has been texted on {outcome.to}."
+        logger.warning(
+            "gap-fill booked appointment %s but the patient was not texted: %s",
+            getattr(appointment, "id", "?"),
+            outcome.detail,
+        )
+        return f"NOT texted ({outcome.detail}) — please ring {patient_phone} yourself."
 
     # -- the page -----------------------------------------------------------
 
