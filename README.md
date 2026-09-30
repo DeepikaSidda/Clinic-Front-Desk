@@ -870,6 +870,7 @@ without a rebuild.
 | `CLINIC_CONNECT_INSTANCE_ID` | *(unset)* | Amazon Connect instance; set with the flow id to route handovers to a phone line |
 | `CLINIC_CONNECT_FLOW_ID` | *(unset)* | Connect contact flow for the handover |
 | `CLINIC_NOVA_SONIC_MODEL_ID` | *(v1)* | Nova Sonic model id |
+| `CLINIC_VOICE_ID` | `kiara` | The voice callers hear. `kiara`/`arjun` are Nova Sonic's Indian-English pair; `tiffany`/`matthew` are US English. An unknown id is refused at startup rather than mid-call |
 | `CLINIC_RECORDINGS_BUCKET` | *(unset)* | **Unset = no audio captured at all** |
 | `CLINIC_RECORDINGS_PREFIX` | `call-recordings/` | S3 key prefix |
 | `CLINIC_RECORDINGS_SSE` | `AES256` | Or `aws:kms` |

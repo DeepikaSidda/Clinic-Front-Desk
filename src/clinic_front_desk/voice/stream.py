@@ -58,6 +58,7 @@ from __future__ import annotations
 
 import inspect
 import logging
+import os
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
@@ -607,8 +608,47 @@ class NovaSonicVoiceStream:
     #: Amazon Bedrock). Overridable via the ``model_id`` constructor arg.
     DEFAULT_MODEL_ID = "amazon.nova-2-sonic-v1:0"
 
-    #: Default Nova Sonic output voice.
-    DEFAULT_VOICE_ID = "matthew"
+    #: Default Nova Sonic output voice: Indian English, feminine.
+    #:
+    #: Was ``matthew`` — a US English voice — which meant a clinic in Tirupati
+    #: answered its patients in an American accent, while the post-call transcription
+    #: pipeline was already configured ``en-IN``. The system assumed Indian English of
+    #: its callers and spoke none back at them.
+    #:
+    #: Nova 2 Sonic's ``en-IN`` pair is ``kiara`` (feminine) and ``arjun``
+    #: (masculine); ``hi-IN`` uses those same two ids, so switching a clinic to Hindi
+    #: is a prompt-language change and not a voice change. Worth stating plainly for
+    #: this clinic: **Telugu is not an available language**, so a Tirupati caller who
+    #: speaks no Hindi or English is still not served by this — it is a real limit of
+    #: the model, not something configuration reaches.
+    DEFAULT_VOICE_ID = "kiara"
+
+    #: Voice ids Nova 2 Sonic actually accepts, so a typo fails here rather than
+    #: mid-call. Not a hardcoded policy: any of these may be selected.
+    KNOWN_VOICE_IDS: frozenset[str] = frozenset(
+        {
+            # en-US (polyglot: these two can speak every supported language)
+            "tiffany",
+            "matthew",
+            # en-GB, en-AU
+            "amy",
+            "olivia",
+            # en-IN and hi-IN share this pair
+            "kiara",
+            "arjun",
+            # fr-FR, it-IT, de-DE, es-US, pt-BR
+            "ambre",
+            "florian",
+            "beatrice",
+            "lorenzo",
+            "tina",
+            "lennart",
+            "lupe",
+            "carlos",
+            "carolina",
+            "leo",
+        }
+    )
 
     def __init__(
         self,
@@ -658,13 +698,39 @@ class NovaSonicVoiceStream:
         self._model = model
         self._model_id = model_id or self.DEFAULT_MODEL_ID
         self._region = region
-        self._voice_id = voice_id or self.DEFAULT_VOICE_ID
+        self._voice_id = self._resolve_voice_id(voice_id)
         self._endpointing_sensitivity = endpointing_sensitivity
         self._provider_config = provider_config
         self._client_config = client_config
         self._tools = tools
         self._system_prompt = system_prompt
         self._agent_kwargs = dict(agent_kwargs or {})
+
+    @classmethod
+    def _resolve_voice_id(cls, voice_id: str | None) -> str:
+        """Pick the output voice: explicit argument, then ``CLINIC_VOICE_ID``, then default.
+
+        Read from the environment here rather than threaded through five composition
+        layers as a new parameter, matching how the handover module reads its own
+        timings. A clinic changing the voice its patients hear should not need a code
+        change, and a doctor in Hyderabad wanting ``arjun`` should not need a redeploy
+        of anything but a systemd drop-in.
+
+        An unrecognised id is **refused at construction**, which is the only moment it
+        can be refused cheaply. Nova Sonic rejects a bad ``voiceId`` when the prompt
+        starts — mid-call, after the caller has already said hello — so the failure
+        would land as silence on a real patient rather than as a startup error.
+        """
+        chosen = (voice_id or os.environ.get("CLINIC_VOICE_ID") or "").strip()
+        if not chosen:
+            return cls.DEFAULT_VOICE_ID
+        if chosen.lower() not in cls.KNOWN_VOICE_IDS:
+            raise ValueError(
+                f"CLINIC_VOICE_ID={chosen!r} is not a Nova Sonic voice. "
+                f"Indian English is 'kiara' or 'arjun'. "
+                f"Known: {', '.join(sorted(cls.KNOWN_VOICE_IDS))}"
+            )
+        return chosen.lower()
 
     def _build_nova_sonic_model(self) -> Any:
         """Construct a real ``BidiNovaSonicModel`` for the Bedrock connection.

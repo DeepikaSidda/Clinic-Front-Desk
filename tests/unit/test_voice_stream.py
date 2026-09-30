@@ -531,3 +531,66 @@ def test_adapter_stop_playback_is_fast_noop() -> None:
 def test_adapter_close_without_agent_is_safe() -> None:
     adapter = NovaSonicVoiceStream()
     _run(adapter.close())  # never started; no-op
+
+
+# -- output voice selection -------------------------------------------------
+#
+# The clinic is in Tirupati and the transcription pipeline was already en-IN, while
+# the agent answered in a US accent. These pin the default and the override so that
+# never silently drifts back.
+
+
+def test_default_voice_is_indian_english() -> None:
+    assert NovaSonicVoiceStream.DEFAULT_VOICE_ID == "kiara"
+    assert NovaSonicVoiceStream()._voice_id == "kiara"
+
+
+def test_an_explicit_voice_wins_over_the_default() -> None:
+    assert NovaSonicVoiceStream(voice_id="arjun")._voice_id == "arjun"
+
+
+def test_the_environment_can_change_the_voice_without_a_code_change(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("CLINIC_VOICE_ID", "arjun")
+    assert NovaSonicVoiceStream()._voice_id == "arjun"
+
+
+def test_an_explicit_argument_still_beats_the_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("CLINIC_VOICE_ID", "arjun")
+    assert NovaSonicVoiceStream(voice_id="kiara")._voice_id == "kiara"
+
+
+def test_a_blank_environment_value_falls_back_rather_than_sending_empty(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # An unset-but-present env var is common in systemd drop-ins. Passing "" through
+    # to Nova Sonic would fail the promptStart mid-call.
+    monkeypatch.setenv("CLINIC_VOICE_ID", "   ")
+    assert NovaSonicVoiceStream()._voice_id == "kiara"
+
+
+def test_an_unknown_voice_is_refused_at_construction(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Nova Sonic rejects a bad voiceId when the prompt starts — mid-call, after the
+    # caller has said hello — so the failure has to be pulled forward to startup.
+    monkeypatch.setenv("CLINIC_VOICE_ID", "kajal")  # a Polly voice, not a Sonic one
+    with pytest.raises(ValueError, match="not a Nova Sonic voice"):
+        NovaSonicVoiceStream()
+
+
+def test_the_refusal_names_the_indian_english_options() -> None:
+    # The error is read by whoever mistyped the drop-in, so it has to say what to use.
+    with pytest.raises(ValueError) as caught:
+        NovaSonicVoiceStream(voice_id="not-a-voice")
+    message = str(caught.value)
+    assert "kiara" in message
+    assert "arjun" in message
+
+
+def test_a_voice_id_is_matched_case_insensitively() -> None:
+    # The AWS docs table renders the ids in capitals in places, so someone will.
+    assert NovaSonicVoiceStream(voice_id="KIARA")._voice_id == "kiara"
