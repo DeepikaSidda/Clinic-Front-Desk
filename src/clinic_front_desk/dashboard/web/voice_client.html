@@ -28,10 +28,15 @@
 
     <main class="voice-client">
       <section class="voice-client__stage">
+        <!-- Replaced from voice_client.js when no microphone can be opened, so this copy
+             is what someone with a working one reads. It still names the typed box,
+             because a caller who would rather not speak aloud should know before they
+             press anything that they do not have to. -->
         <p class="voice-client__hint" data-role="hint">
           Press <strong>Start call</strong> and allow microphone access, then speak
           as you would to a receptionist. Nova Sonic handles the speech both ways —
-          you will hear the reply.
+          you will hear the reply. No microphone? Start the call anyway and type
+          instead; the clinic still answers out loud.
         </p>
 
         <div class="voice-client__controls">

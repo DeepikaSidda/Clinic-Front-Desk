@@ -35,7 +35,7 @@ The appointment page is server-rendered with no JavaScript, which is why it need
 
 For the handover, keep the caller page and the live call page open, start a call and say *"can I speak to a person"*. The console rings, and one button puts you on the call in your own voice.
 
-Needs a microphone and a Chromium-based browser.
+Best with a microphone and a Chromium-based browser. Without a microphone, start the call anyway and type — the same agent answers, out loud.
 
 > **`[IMAGE 1 — the agent call page]`**
 > *Screenshot of `/voice` mid-conversation, with the live transcript visible.*
@@ -300,7 +300,7 @@ Everything below is live. Nothing is a recording.
 | --- | --- | --- |
 | [Start a call](https://d21u7cmj563imv.cloudfront.net/voice) | [See the appointments](https://d21u7cmj563imv.cloudfront.net/slots?role=doctor&day=2026-09-12) | [Watch live calls](https://d21u7cmj563imv.cloudfront.net/live?role=doctor&k=POsBgStYRRE64ZBytbrGdWvelnWXhrLd6jh6oLT3Af8) |
 
-You need a microphone and a Chromium-based browser for the two pages that carry audio.
+A microphone and a Chromium-based browser give the full experience on the two pages that carry audio. **No microphone is no obstacle** — press Start call and type into the box under the transcript; it reaches the same agent, and the reply comes back as speech.
 
 **Open 12 September 2026 first.** That is a full clinic day — 17 booked, 5 open, every booked cell naming the patient who took it. Most other dates are empty, and the page makes no sense on an empty day.
 

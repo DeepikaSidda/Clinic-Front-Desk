@@ -48,9 +48,11 @@ Then open the three pages side by side and watch a single call move across all o
 >
 > Every page below accepts `&day=YYYY-MM-DD`, so you can jump straight to any date.
 
-You need a **microphone** and a **Chromium-based browser** (Chrome, Edge, Brave) for the two
-pages that carry audio. The doctor's pages need `?role=doctor`, and the live console also needs
-the `k` secret — both are already in the links above.
+A **microphone** and a **Chromium-based browser** (Chrome, Edge, Brave) give you the full
+experience on the two pages that carry audio. **Without a microphone you can still hold the
+whole conversation** — press Start call, and the typed box under the transcript reaches the same
+agent, which answers out loud. The doctor's pages need `?role=doctor`, and the live console also
+needs the `k` secret; both are already in the links above.
 
 ### 1. Caller page — talk to the agent
 
