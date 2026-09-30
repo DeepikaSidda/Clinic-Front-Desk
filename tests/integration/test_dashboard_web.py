@@ -293,7 +293,35 @@ def test_onboarding_page_is_styled_and_served(client: Any) -> None:
     assert response.status_code == 200
     assert '<link rel="stylesheet" href="/static/dashboard.css" />' in response.text
     assert 'src="/static/onboarding_wizard.js"' in response.text
-    assert 'id="onboarding-wizard"' in response.text
+
+
+def test_onboarding_shows_the_form_only_while_a_clinic_needs_setting_up() -> None:
+    # The wizard is the Req 1.1 first-access path, so an unconfigured clinic must get
+    # the real form — this is the only route to it.
+    unconfigured = TestClient(create_asgi_app(build_memory_application(stream=FakeVoiceStream())))
+
+    body = unconfigured.get("/onboarding").text
+
+    assert 'id="onboarding-wizard"' in body
+    assert "Set up your clinic" in body
+
+
+def test_a_configured_clinic_gets_a_finished_page_not_an_empty_form(
+    client: Any,
+) -> None:
+    # The page used to render the template's fixed heading and intro — "Set up your
+    # clinic", then "add your hours, location, services" — above a form with no
+    # fields in it, because only the body was emptied once the clinic was configured.
+    # A finished state wearing a to-do list reads as a broken page.
+    body = client.get("/onboarding").text
+
+    assert "Your clinic is set up" in body
+    assert "Set up your clinic" not in body
+    assert "Add your clinic hours" not in body, "the setup instructions are gone"
+    # No empty form: a control that looks like it should do something, and cannot.
+    assert 'id="onboarding-wizard"' not in body
+    # Somewhere to go instead of a dead end.
+    assert 'href="/?role=doctor"' in body
 
 
 # ---------------------------------------------------------------------------

@@ -737,10 +737,16 @@ def render_html(view: OnboardingWizardViewModel) -> str:
     (Req 1.1).
     """
     if not view.present:
-        # A confirmation only after an actual save. Landing on this page when the
-        # clinic is already set up used to show "Clinic configuration is complete",
-        # which is a banner telling the doctor something she did not ask about and
-        # cannot act on — so nothing is rendered in that case.
+        # Emptying the body was right and not enough. The template's own heading and
+        # intro are fixed markup — "Set up your clinic", then "add your hours,
+        # location, services, accepted insurance and providers" — so a configured
+        # clinic rendered setup instructions above a form with no fields in it. A
+        # finished state wearing a to-do list reads as a broken page, which is
+        # exactly how it was reported.
+        #
+        # So the whole page changes for this state, not just the middle of it: it
+        # says the clinic is set up, and points at the one place there is anything
+        # left to do.
         body = (
             '<div class="wizard-done">'
             '<p class="wizard-success" role="status">Clinic configuration saved.</p>'
@@ -748,9 +754,44 @@ def render_html(view: OnboardingWizardViewModel) -> str:
             if view.saved
             else ""
         )
-    else:
-        body = _render_body(view)
-    return _template_shell().replace(_BODY_TOKEN, body)
+        return _render_already_configured(body)
+    return _template_shell().replace(_BODY_TOKEN, _render_body(view))
+
+
+def _render_already_configured(notice: str) -> str:
+    """The page a configured clinic gets instead of the first-run form.
+
+    ``notice`` carries the "saved" confirmation when the doctor has just submitted
+    the wizard, and is empty when she merely navigated here.
+
+    The form is removed rather than rendered empty. An empty ``<form>`` is a control
+    that looks like it should do something, and the wizard writes the whole
+    configuration at once — there is no partial edit for it to offer.
+    """
+    page = _template_shell()
+    page = page.replace(
+        "<h1>Set up your clinic</h1>", "<h1>Your clinic is set up</h1>", 1
+    )
+    page = re.sub(
+        r'<p class="wizard-intro">.*?</p>',
+        '<p class="wizard-intro">The front desk is configured and answering calls. '
+        "This form only appears while a clinic still needs setting up.</p>",
+        page,
+        count=1,
+        flags=re.S,
+    )
+    # Drop the now-empty form wrapper and put the body in its place, so the page ends
+    # with something to act on rather than an input-less form.
+    page = re.sub(
+        r'<form id="onboarding-wizard".*?</form>',
+        notice
+        + '<p class="wizard-intro">'
+        '<a href="/?role=doctor">Go to the dashboard</a></p>',
+        page,
+        count=1,
+        flags=re.S,
+    )
+    return page
 
 
 __all__ = [
