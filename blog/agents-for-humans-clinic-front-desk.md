@@ -262,7 +262,7 @@ This second agent is what makes the system more than an answering service. The c
 | **Bedrock AgentCore Runtime** | Containerised deployment target alongside the EC2 demo |
 | **Amazon CloudWatch** | Logs and metrics |
 
-Calls are answered **in the browser**. I also wrote and tested an **Amazon Connect** integration to put both ends on a real phone number, but it can't be enabled here: AISPL accounts — Amazon's Indian reseller — cannot create Connect instances, in any region. That's account-level, not a permission or a quota. The code activates on two environment variables the day it runs in an account with non-Indian billing.
+Calls are answered **in the browser**.
 
 ---
 

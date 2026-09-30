@@ -153,7 +153,6 @@ record, visible in the dashboard's call log.
 | **Language** | Python 3.12 |
 
 
-
 ---
 
 ## The core principle
@@ -676,48 +675,6 @@ The **audio is the record of authority** and the text is a searchable aid. Recog
 not perfect — one verification run turned "I can see you tomorrow morning at ten o'clock"
 into "I can see it at 10 o'clock" — so the exact conversation is always the WAV.
 
-### Amazon Connect — NOT used, and cannot be in this account
-
-**This project does not use Amazon Connect.** The handover described above runs entirely in
-the browser. What follows is the design and code for a phone-line version that could not be
-switched on, kept here so the reasoning is on record.
-
-Connect would put both ends on a real phone number instead of browser tabs. The code is
-written and covered by 23 tests, activating on `CLINIC_CONNECT_INSTANCE_ID` and
-`CLINIC_CONNECT_FLOW_ID`. It cannot be enabled in this account:
-
-```
-InvalidRequestException: You're signed in with an AWS account that was provided
-by AISPL. These accounts cannot create Amazon Connect instances.
-```
-
-Tested with a valid alias in all nine Connect regions — the same refusal each time;
-`ap-south-1` does not offer the service at all. AISPL is Amazon's Indian reseller and the
-restriction is account-level and documented: not permissions, not a quota, not something a
-support ticket changes. The only route is an AWS account with non-Indian billing.
-
-The design, for whoever has such an account:
-
-1. **A Connect instance with a contact flow** holding a clinic queue, with the doctor's
-   mobile as an agent endpoint.
-2. **`flag_for_human` gains a transport.** After writing the `Escalation` row it calls
-   `connect:StartOutboundVoiceContact` — or, for a warm transfer of the live call,
-   `StartTaskContact` carrying the escalation id.
-3. **Escalation context travels with the contact** as Connect contact attributes: patient
-   name, mobile, the reason, and the last few transcript turns. Whoever picks up starts
-   informed instead of making the caller repeat everything.
-4. **The `Escalation` row is the correlation key.** Connect's contact id is written back onto
-   it, so the dashboard shows *offered → transferred → answered → resolved* rather than a row
-   that only ever says "open".
-5. **Failure is explicit.** If the transfer does not connect, the agent must say so and take
-   a message. Silently claiming a human will call back is the exact failure mode this system
-   exists to avoid.
-
-Two things stay unchanged by that work, on purpose. The escalation is still **recorded
-first**, so a handover is never lost because a phone network was down. And the agent still
-refuses clinical questions — a pending transfer is not permission to triage while waiting.
-
-
 
 ---
 
@@ -867,8 +824,6 @@ without a rebuild.
 | `CLINIC_CONSOLE_TOKEN` | *(unset)* | Publishes the **live console only** on a voice-only host, behind this shared secret. Minimum 24 characters, refused at startup below that. Unset = no console routed |
 | `CLINIC_UNATTENDED_AFTER_SECONDS` | `45` | How long a caller waits for a human before the agent apologises and offers a message. Must be long enough to actually answer — see below |
 | `CLINIC_HOLDING_AFTER_SECONDS` | `12` | When the caller is told someone is still being fetched, so the wait above is not silence |
-| `CLINIC_CONNECT_INSTANCE_ID` | *(unset)* | Amazon Connect instance; set with the flow id to route handovers to a phone line |
-| `CLINIC_CONNECT_FLOW_ID` | *(unset)* | Connect contact flow for the handover |
 | `CLINIC_NOVA_SONIC_MODEL_ID` | *(v1)* | Nova Sonic model id |
 | `CLINIC_VOICE_ID` | `kiara` | The voice callers hear. `kiara`/`arjun` are Nova Sonic's Indian-English pair; `tiffany`/`matthew` are US English. An unknown id is refused at startup rather than mid-call |
 | `CLINIC_RECORDINGS_BUCKET` | *(unset)* | **Unset = no audio captured at all** |
@@ -1038,7 +993,6 @@ Also in place:
 - **IMDSv2 is required** on the instance.
 
 ---
-
 
 
 ## Acknowledgements

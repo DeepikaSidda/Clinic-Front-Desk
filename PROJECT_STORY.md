@@ -434,38 +434,6 @@ At $n = 1000$ that is already $\approx 52\%$, and real initials cluster far from
 
 ## What's next for Clinic Front Desk — the voice agent always on the line
 
-**Amazon Connect, to carry the handover onto a real phone line.** The handover itself is done — a caller who asks for a person gets one, live, in the doctor's own voice, as described above. What Connect adds is the *telephone*: today both ends are browser tabs, and a clinic's front desk belongs on the clinic's actual number.
-
-The integration is written, not merely planned: `flag_for_human` has a transport seam, the Connect client is implemented behind it, and 23 tests cover it. It activates on two environment variables, `CLINIC_CONNECT_INSTANCE_ID` and `CLINIC_CONNECT_FLOW_ID`.
-
-It is not switched on because it cannot be, in this account:
-
-```
-InvalidRequestException: You're signed in with an AWS account that was provided
-by AISPL. These accounts cannot create Amazon Connect instances.
-```
-
-We tested a valid alias in all nine Connect regions and got the same refusal in each; `ap-south-1` does not offer the service at all. AISPL is Amazon's Indian reseller, and the restriction is account-level and documented — not permissions, not a quota, nothing a support ticket moves. The only route is an AWS account with non-Indian billing.
-
-That blockage is what produced the browser-based live takeover, and we would keep it either way: it works without a telephony provider at all, which matters for a clinic that has not bought one yet.
-
-**Why Connect is the right instrument for this.** A handover is a telephony problem, and telephony is the part nobody should build themselves. Amazon Connect is a managed contact centre: it provides the phone number, the call routing, the hold behaviour, the queueing when the doctor is already on a call, and the agent-side interface — none of which we would want to assemble from SIP trunks and hope. What it exposes to us is an ordinary AWS API surface, scoped with ordinary IAM, so the agent asks for a call the same way it asks for anything else.
-
-The vocabulary maps onto the clinic almost one-to-one. An **instance** is the clinic's contact centre. A **contact flow** is the script that runs when a contact starts — greet, look up who is calling, route them. A **queue** is where a contact waits when nobody is free. An **agent endpoint** is where a human actually answers, which for a solo practice is simply the doctor's mobile. And **contact attributes** are key-value pairs that travel with the contact through the whole flow, which is the mechanism that lets us hand over context rather than just a ringing phone.
-
-The distinction between the two APIs matters for what the caller experiences. `StartOutboundVoiceContact` places a fresh call — right for a callback, where the patient has already hung up. `StartTaskContact` creates a work item on the live contact, which is what a **warm transfer** needs: the caller stays on the line and is passed to a person, rather than being told someone will ring back. The second is the experience we want, and the first is the honest fallback when nobody is available.
-
-There is also a symmetry we like. The same Connect integration that carries a handover *out* is the one that lets calls come *in* over a real phone number instead of a browser tab. Today the agent answers a WebSocket; with Connect in place it answers the clinic's actual line, which is where a front desk belongs.
-
-The seam is already there: escalation is a single tool with a typed result, not logic smeared through a prompt. The design we will implement:
-
-1. **A Connect instance with a contact flow** holding a clinic queue, with the doctor's mobile as an agent endpoint.
-2. **`flag_for_human` gains a transport.** After writing the `Escalation` row it calls `StartOutboundVoiceContact` — or `StartTaskContact` for a warm transfer of the live call.
-3. **Escalation context travels with the contact** as Connect contact attributes: patient name, mobile, the reason, and the last few transcript turns. Whoever picks up starts informed instead of making the caller repeat everything.
-4. **The `Escalation` row becomes the correlation key.** Connect's contact id is written back onto it, so the dashboard shows *offered → transferred → answered → resolved* rather than a row that only ever says "open".
-5. **Failure stays explicit.** If the transfer does not connect, the agent says so and takes a message. Silently claiming a callback is the exact failure mode this system exists to avoid.
-
-Two properties stay unchanged by that work, on purpose. The escalation is still **recorded first**, so a handover is never lost because a phone network was down. And a pending transfer is still not a licence to start advising — the agent keeps directing the judgement to the doctor while the caller waits.
 
 **Outbound calls on the same stack.** No-show follow-ups, appointment reminders, and ringing the waitlist when a gap opens rather than waiting for the doctor to approve a Decision.
 
