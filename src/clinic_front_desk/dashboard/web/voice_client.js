@@ -234,6 +234,9 @@
       playContext: null,
       stream: null,
       worklet: null,
+      // Set by `start`: true when no microphone could be opened, so the call runs on
+      // typed turns and playback alone.
+      textOnly: false,
       sources: [],
       playhead: 0,
       sentSamples: 0,
@@ -327,39 +330,70 @@
       }
     }
 
+    // A call without a microphone is still a call. Capture is the only part of this
+    // pipeline that needs one: playback, the socket and typed turns do not, and the
+    // server already speaks a typed line into the caller's own stream. Failing to get
+    // a microphone used to abort `start` outright, which left anyone on a machine
+    // without one — or anyone who pressed Block on the permission prompt — with no way
+    // to reach the agent at all, even though the text path beside the button worked.
     async function start() {
-      setStatus("connecting", "Requesting microphone");
-      state.stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          channelCount: 1,
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        },
-      });
+      var micIssue = microphoneBlocker();
 
-      // Ask for 16 kHz directly; the worklet resamples if the browser declines.
-      state.micContext = new AudioContext({ sampleRate: CAPTURE_RATE });
-      state.playContext = new AudioContext({ sampleRate: PLAYBACK_RATE });
-      await state.micContext.resume();
-      await state.playContext.resume();
-      state.playhead = state.playContext.currentTime;
+      if (!micIssue) {
+        setStatus("connecting", "Requesting microphone");
+        try {
+          state.stream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+              channelCount: 1,
+              echoCancellation: true,
+              noiseSuppression: true,
+              autoGainControl: true,
+            },
+          });
+        } catch (err) {
+          micIssue =
+            err && err.name === "NotAllowedError"
+              ? "Microphone permission was denied."
+              : "The microphone could not be opened" +
+                (err && err.message ? " (" + err.message + ")." : ".");
+        }
+      }
 
-      if (state.micContext.sampleRate !== CAPTURE_RATE) {
+      state.textOnly = !state.stream;
+      if (state.textOnly) {
         addNote(
-          "Browser captured at " +
-            state.micContext.sampleRate +
-            " Hz; resampling to 16 kHz.",
+          micIssue + " Continuing in text mode: type below and you will hear the reply.",
           "info"
         );
       }
 
-      var blob = new Blob([WORKLET_SOURCE], { type: "application/javascript" });
-      var url = URL.createObjectURL(blob);
-      await state.micContext.audioWorklet.addModule(url);
-      URL.revokeObjectURL(url);
+      // Playback is wanted either way — in text mode it is the whole of the call the
+      // caller can perceive.
+      state.playContext = new AudioContext({ sampleRate: PLAYBACK_RATE });
+      await state.playContext.resume();
+      state.playhead = state.playContext.currentTime;
 
-      setStatus("connecting", "Connecting");
+      if (!state.textOnly) {
+        // Ask for 16 kHz directly; the worklet resamples if the browser declines.
+        state.micContext = new AudioContext({ sampleRate: CAPTURE_RATE });
+        await state.micContext.resume();
+
+        if (state.micContext.sampleRate !== CAPTURE_RATE) {
+          addNote(
+            "Browser captured at " +
+              state.micContext.sampleRate +
+              " Hz; resampling to 16 kHz.",
+            "info"
+          );
+        }
+
+        var blob = new Blob([WORKLET_SOURCE], { type: "application/javascript" });
+        var url = URL.createObjectURL(blob);
+        await state.micContext.audioWorklet.addModule(url);
+        URL.revokeObjectURL(url);
+      }
+
+      setStatus("connecting", state.textOnly ? "Connecting (text mode)" : "Connecting");
       var scheme = location.protocol === "https:" ? "wss" : "ws";
       state.socket = new WebSocket(scheme + "://" + location.host + "/ws");
       state.socket.binaryType = "arraybuffer";
@@ -382,6 +416,12 @@
           addNote("Connection closed by the server.", "end");
         }
       });
+
+      if (state.textOnly) {
+        // No capture graph to build. `stop`, `setMuted` and the level meter all already
+        // guard on `state.worklet`, so leaving it unset is the whole of the difference.
+        return;
+      }
 
       var source = state.micContext.createMediaStreamSource(state.stream);
       state.worklet = new AudioWorkletNode(state.micContext, "capture-processor", {
@@ -462,17 +502,20 @@
 
   // --- wiring ------------------------------------------------------------
 
-  function unsupported() {
+  // Why the microphone cannot be used here, or null if it can. Every condition below is
+  // specific to *capture* — playback, the WebSocket and typed turns need none of them —
+  // so none of them is a reason to refuse the call.
+  function microphoneBlocker() {
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      return "This browser has no microphone API. Use Chrome, Edge, or Firefox.";
+      return "This browser has no microphone API.";
     }
     if (typeof AudioWorkletNode === "undefined") {
       return "This browser lacks AudioWorklet, which the capture pipeline needs.";
     }
     if (!window.isSecureContext) {
       return (
-        "Microphone access needs a secure context. Open this page on " +
-        "http://127.0.0.1:8080/voice (localhost counts as secure) or serve it over HTTPS."
+        "Microphone access needs a secure context (HTTPS, or " +
+        "http://127.0.0.1 which counts as secure)."
       );
     }
     return null;
@@ -481,12 +524,13 @@
   function boot() {
     bind();
 
-    var blocker = unsupported();
-    if (blocker) {
-      setStatus("offline", "Unavailable");
-      if (el.hint) el.hint.textContent = blocker;
-      if (el.start) el.start.disabled = true;
-      return;
+    // A missing microphone is announced, not enforced. The button stays live because
+    // the typed path reaches the same agent, and telling someone their browser is
+    // "Unavailable" when it can still hold a conversation is simply wrong.
+    var micIssue = microphoneBlocker();
+    if (micIssue && el.hint) {
+      el.hint.textContent =
+        micIssue + " You can still press Start call and type to the clinic.";
     }
 
     // Typing is only meaningful once a call exists, since the words are spoken into
@@ -520,13 +564,13 @@
         setTypedEnabled(true);
       } catch (err) {
         setStatus("offline", "Failed");
-        // The overwhelmingly common cause is a denied mic permission, so say so
-        // rather than showing a bare DOMException name.
-        var message =
-          err && err.name === "NotAllowedError"
-            ? "Microphone permission was denied. Allow it in the browser's site settings and try again."
-            : "Could not start the call: " + (err && err.message ? err.message : err);
-        addNote(message, "error");
+        // A denied microphone no longer lands here — `start` absorbs that and falls back
+        // to text — so anything reaching this point failed to reach the clinic at all,
+        // and the socket is the realistic culprit.
+        addNote(
+          "Could not start the call: " + (err && err.message ? err.message : err),
+          "error"
+        );
         el.start.disabled = false;
         setTypedEnabled(false);
         call = null;
