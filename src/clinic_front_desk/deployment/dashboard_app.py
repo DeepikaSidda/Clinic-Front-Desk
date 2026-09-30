@@ -86,7 +86,12 @@ from clinic_front_desk.dashboard.schedule_view import (
 )
 from clinic_front_desk.dashboard.shell import render_dashboard_shell
 from clinic_front_desk.data_layer.interfaces import ClinicDocumentStore
-from clinic_front_desk.models import DecisionStatus, is_err, is_ok
+from clinic_front_desk.models import (
+    AppointmentStatus,
+    DecisionStatus,
+    is_err,
+    is_ok,
+)
 
 from .app import ClinicFrontDeskApplication
 
@@ -593,6 +598,121 @@ class DashboardWebApp:
             # texted" is only actionable if the doctor is told to ring them instead.
             "notified": notified,
         }
+
+    def remind_day(
+        self, role: str | None, *, day: str = "", provider_id: str = ""
+    ) -> tuple[str | None, str | None]:
+        """Text every booked patient on ``day`` who has not been reminded yet.
+
+        Doctor-pressed rather than scheduled, and that is a deliberate limit rather
+        than a shortcut: nothing on this host runs on a timer, so a reminder that
+        claimed to fire "the day before" would be claiming something untrue. A button
+        she presses at the end of the day does the same job and cannot silently stop
+        working.
+
+        Skips anyone already reminded, because the stamp on the appointment is what
+        makes a second press harmless. Without that, the doctor who is unsure whether
+        she pressed it presses it again, and a patient gets the same message twice.
+
+        Never aborts part-way. Each patient is independent, and one unreachable number
+        must not stop the rest of the day being told — the summary reports how many
+        were reached and how many were not, so the failures are countable rather than
+        invisible.
+        """
+        self.require_view(role, DashboardView.SCHEDULE)
+
+        resolved_day = day or self.today()
+        providers = self.provider_ids()
+        resolved_provider = provider_id or (providers[0] if providers else "")
+        if not resolved_provider:
+            return None, "No provider is configured."
+
+        listed = self.app.stores.appointments.list_by_provider_and_day(
+            resolved_provider, resolved_day
+        )
+        if is_err(listed):
+            return None, f"Could not read that day: {listed.error.detail}"
+
+        booked = [
+            appointment
+            for appointment in listed.value
+            if str(getattr(appointment, "status", "")) == AppointmentStatus.BOOKED.value
+        ]
+        if not booked:
+            return f"No booked appointments on {resolved_day}.", None
+
+        from clinic_front_desk.notifications import reminder_message
+
+        contact = ""
+        config = self.app.stores.knowledge_base.get()
+        if is_ok(config) and config.value is not None:
+            contact = config.value.contact_phone or ""
+
+        sent = 0
+        failed = 0
+        skipped = 0
+        for appointment in booked:
+            if getattr(appointment, "reminded_at", ""):
+                skipped += 1
+                continue
+
+            name = ""
+            phone = ""
+            if appointment.patient_id:
+                patient = self.app.stores.patients.get(appointment.patient_id)
+                if is_ok(patient) and patient.value is not None:
+                    name = patient.value.name
+                    phone = patient.value.callback_phone
+
+            if not phone:
+                failed += 1
+                # Stamped anyway, with the reason. "No number" is a fact about the
+                # record, not a transient error, so re-attempting it every evening
+                # would only re-discover it.
+                self.app.stores.appointments.mark_reminded(
+                    appointment.id,
+                    at=self._timestamp(),
+                    failed="no mobile number on file",
+                )
+                continue
+
+            outcome = self.sms_sender.send(
+                phone,
+                reminder_message(
+                    patient_name=name,
+                    service=appointment.service,
+                    date=appointment.date,
+                    time=appointment.time,
+                    clinic_phone=contact,
+                ),
+            )
+            if outcome.sent:
+                sent += 1
+            else:
+                failed += 1
+                logger.warning(
+                    "reminder for appointment %s was not delivered: %s",
+                    appointment.id,
+                    outcome.detail,
+                )
+            self.app.stores.appointments.mark_reminded(
+                appointment.id,
+                at=self._timestamp(),
+                failed="" if outcome.sent else outcome.detail,
+            )
+
+        parts = [f"Reminded {sent} of {len(booked)} patients on {resolved_day}."]
+        if failed:
+            # Named, not buried. A reminder run that quietly failed for half the day
+            # is worse than none, because the clinic believes those patients know.
+            parts.append(f"{failed} could not be texted — check the day's list.")
+        if skipped:
+            parts.append(f"{skipped} had already been reminded.")
+        return " ".join(parts), None
+
+    def _timestamp(self) -> str:
+        """Now, as an ISO-8601 string, through the injected clock so tests can pin it."""
+        return self._now().isoformat()
 
     def _notify_gap_filled(self, gap_fill: Any) -> str:
         """Text the waitlisted patient that a slot opened up and they now have it.

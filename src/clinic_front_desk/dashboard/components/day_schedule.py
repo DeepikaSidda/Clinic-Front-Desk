@@ -424,6 +424,33 @@ def _render_block_form(view: DayScheduleViewModel) -> str:
     )
 
 
+def _render_remind_form(view: DayScheduleViewModel) -> str:
+    """One button that texts every booked patient on this day.
+
+    Pressed by the doctor rather than fired by a scheduler, and that is honest rather
+    than lazy: nothing in this deployment runs on a timer, so a reminder advertised as
+    going out "the day before" would be advertising something that does not happen. A
+    button at the end of surgery does the same work and cannot quietly stop running.
+
+    Safe to press twice. Each appointment carries the moment it was reminded, so a
+    second press skips whoever already had their message instead of sending it again —
+    which matters because the doctor who cannot remember whether she pressed it is
+    exactly the person who will press it again.
+    """
+    return (
+        f'<form class="day-schedule__remind" method="post" '
+        f'action="{_esc(view.url(SLOTS_ENDPOINT + "/remind"))}">'
+        f'<input type="hidden" name="day" value="{_esc(view.day)}">'
+        f'<input type="hidden" name="provider_id" value="{_esc(view.provider_id)}">'
+        '<button type="submit" class="day-schedule__remind-submit">'
+        "\U0001f4f2 Remind this day's patients</button>"
+        '<p class="day-schedule__hint">Texts everyone booked on this day who has not '
+        "been reminded yet, asking them to call if they cannot come. Pressing it again "
+        "is safe \u2014 nobody is texted twice.</p>"
+        "</form>"
+    )
+
+
 def render_day_schedule(view: DayScheduleViewModel) -> str:
     """Render the day-calendar body."""
     parts = [
@@ -518,6 +545,7 @@ def render_day_schedule(view: DayScheduleViewModel) -> str:
             f"<strong>{len(view.cells)}</strong><span>total</span></li>"
             "</ul>"
         )
+        parts.append(_render_remind_form(view))
         parts.append(
             '<details class="day-schedule__tools">'
             "<summary>Block a time range</summary>"

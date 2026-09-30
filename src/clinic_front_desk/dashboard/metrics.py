@@ -264,6 +264,52 @@ def no_show_rate(
     return rate, no_shows, attended
 
 
+def no_show_rate_by_reminder(
+    appointments: Iterable[Appointment], period: Period
+) -> tuple[float, int, float, int]:
+    """Split the no-show rate by whether the patient was reminded.
+
+    The one number that says whether reminders are worth sending, rather than whether
+    they were sent. Practice_Intelligence already notices a worsening no-show rate and
+    recommends reminders; this is what closes that loop, because "we remind people now"
+    is an activity and "reminded patients miss fewer appointments" is a result.
+
+    Same denominator rule as :func:`no_show_rate` — only appointments that reached a
+    known attendance outcome — split on whether ``reminded_at`` is set. Returns
+    ``(reminded_rate, reminded_count, unreminded_rate, unreminded_count)``.
+
+    A reminder that was *attempted and failed* counts as reminded, and that is
+    deliberate. Treating a bounced text as "not reminded" would quietly move every
+    unreachable patient into the comparison group and flatter the result: the clinic
+    would be comparing people it reached against people it never tried, which is not
+    the question. The stamp records an attempt, and the attempt is what the clinic
+    controls.
+
+    Both rates are ``0.0`` when their group is empty, and a group of one proves
+    nothing — the counts are returned so a reader can see whether the split is worth
+    believing.
+    """
+    reminded_total = reminded_missed = 0
+    unreminded_total = unreminded_missed = 0
+    for appointment in appointments:
+        if appointment.status not in _ATTENDED_STATUSES:
+            continue
+        scheduled = _parse_instant(appointment.date)
+        if scheduled is None or not period.contains(scheduled):
+            continue
+        missed = appointment.status is AppointmentStatus.NO_SHOW
+        if getattr(appointment, "reminded_at", ""):
+            reminded_total += 1
+            reminded_missed += int(missed)
+        else:
+            unreminded_total += 1
+            unreminded_missed += int(missed)
+
+    reminded_rate = (reminded_missed / reminded_total) if reminded_total else 0.0
+    unreminded_rate = (unreminded_missed / unreminded_total) if unreminded_total else 0.0
+    return reminded_rate, reminded_total, unreminded_rate, unreminded_total
+
+
 def compute_impact_metrics(
     *,
     appointments: Iterable[Appointment],
@@ -330,5 +376,6 @@ __all__ = [
     "front_desk_hours_saved",
     "waitlist_recovered_count",
     "no_show_rate",
+    "no_show_rate_by_reminder",
     "compute_impact_metrics",
 ]

@@ -1949,6 +1949,45 @@ def create_asgi_app(
             query += f"&error={urllib.parse.quote(error)}"
         return RedirectResponse(url=f"/slots{query}", status_code=303)
 
+    async def remind_day_route(request: StarletteRequest) -> Response:
+        """``POST /slots/remind`` — text every booked patient on a day."""
+        role = role_of(request)
+        form = await request.form()
+        raw_day = form.get("day")
+        day = raw_day if isinstance(raw_day, str) else ""
+        raw_provider = form.get("provider_id")
+        provider_id = raw_provider if isinstance(raw_provider, str) else ""
+
+        try:
+            message, error = await asyncio.to_thread(
+                partial(
+                    dashboard.remind_day,
+                    role,
+                    day=day,
+                    provider_id=provider_id,
+                )
+            )
+        except DashboardHttpError as exc:
+            return error_response(
+                exc.message,
+                exc.status_code,
+                _DEFAULT_ERROR_TYPES.get(exc.status_code, "ValidationException"),
+            )
+
+        # Same redirect-with-outcome as cancelling: the count of who was and was not
+        # reached is the whole point, so it has to come back on the page rather than
+        # only into a log.
+        query = f"?role={role or 'doctor'}"
+        if day:
+            query += f"&day={day}"
+        if provider_id:
+            query += f"&provider_id={provider_id}"
+        if message:
+            query += f"&notice={urllib.parse.quote(message)}"
+        if error:
+            query += f"&error={urllib.parse.quote(error)}"
+        return RedirectResponse(url=f"/slots{query}", status_code=303)
+
     async def slot_block_route(request: StarletteRequest) -> Response:
         """``POST /slots/block`` — take slots off the calendar, or give them back."""
         role = role_of(request)
@@ -2523,6 +2562,7 @@ def create_asgi_app(
             Route("/slots", slots_route, methods=["GET", "POST"]),
             Route("/slots/block", slot_block_route, methods=["POST"]),
             Route("/slots/cancel", appointment_cancel_route, methods=["POST"]),
+            Route("/slots/remind", remind_day_route, methods=["POST"]),
             Route(
                 "/slots/patient/{patient_id}",
                 patient_detail_route,

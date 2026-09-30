@@ -277,6 +277,13 @@ class FaultInjectingAppointmentStore(_FaultInjectingStore, AppointmentStore):
     def remove(self, id: str) -> StoreResult[SlotRelease]:
         return self._guard("remove", (id,), {}) or self._store.remove(id)
 
+    def mark_reminded(
+        self, id: str, *, at: ISODateTime, failed: str = ""
+    ) -> StoreResult[Appointment]:
+        return self._guard(
+            "mark_reminded", (id,), {"at": at, "failed": failed}
+        ) or self._store.mark_reminded(id, at=at, failed=failed)
+
     def add_slots(self, slots: list[Slot]) -> StoreResult[list[Slot]]:
         return self._guard("add_slots", (slots,), {}) or self._store.add_slots(slots)
 

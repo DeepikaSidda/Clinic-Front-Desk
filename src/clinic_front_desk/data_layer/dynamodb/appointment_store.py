@@ -52,6 +52,7 @@ from clinic_front_desk.models import (
     AppointmentStatus,
     Err,
     ISODate,
+    ISODateTime,
     Ok,
     Slot,
     SlotStatus,
@@ -179,6 +180,21 @@ class DynamoAppointmentStore(AppointmentStore, DynamoStoreBase):
         self._emit(ChangeEntity.SLOT, new_slot_id, ChangeKind.UPDATED)
         if old_slot is not None and old_slot_id != new_slot_id:
             self._emit(ChangeEntity.SLOT, old_slot_id, ChangeKind.UPDATED)
+        return Ok(appt)
+
+    def mark_reminded(
+        self, id: str, *, at: ISODateTime, failed: str = ""
+    ) -> StoreResult[Appointment]:
+        appt_item = self._find_by_entity_id("Appointment", id)
+        if appt_item is None:
+            return _not_found_err(f"appointment {id!r} not found")
+        appt = appointment_from_item(appt_item)
+        appt.reminded_at = at
+        appt.reminder_failed = failed
+        # A whole-item put like every other mutation here, so the keys are regenerated
+        # from the same mapping rather than patched field by field.
+        self._put(appointment_to_item(appt))
+        self._emit(ChangeEntity.APPOINTMENT, appt.id, ChangeKind.UPDATED)
         return Ok(appt)
 
     def remove(self, id: str) -> StoreResult[SlotRelease]:

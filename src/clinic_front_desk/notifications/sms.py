@@ -173,6 +173,47 @@ class SnsSmsSender:
         return SmsOutcome(sent=True, to=number, message_id=message_id)
 
 
+def reminder_message(
+    *,
+    patient_name: str,
+    service: str,
+    date: str,
+    time: str,
+    clinic_phone: str = "",
+) -> str:
+    """The text a patient receives the day before their appointment.
+
+    The only message here the clinic sends about something that has **not** changed,
+    which shapes it. A cancellation and a gap-fill both announce news; this one exists
+    to stop a quiet failure — the patient who simply forgets, arrives at no one's
+    expense but the clinic's empty half hour, and is filed as a no-show.
+
+    So it asks for something. A reminder that only informs converts a forgotten
+    appointment into a remembered one; a reminder that invites a cancellation also
+    converts an *impossible* appointment into a freed slot, which is the more valuable
+    outcome and the one the waiting list can use.
+
+    No clinical detail, same as the others: a text is read by whoever picks up the
+    phone.
+    """
+    who = (patient_name or "").strip().split(" ")[0] or "there"
+    when = f"{date} at {time}".strip()
+    lines = [
+        f"Hello {who}, a reminder of your {service} at the clinic on {when}.",
+    ]
+    if clinic_phone.strip():
+        lines.append(
+            f"If you cannot make it, please call {clinic_phone.strip()} so we can "
+            "offer the time to someone else."
+        )
+    else:
+        lines.append(
+            "If you cannot make it, please let us know so we can offer the time to "
+            "someone else."
+        )
+    return " ".join(lines)
+
+
 def gap_fill_message(
     *,
     patient_name: str,
@@ -247,5 +288,6 @@ __all__ = [
     "SnsSmsSender",
     "cancellation_message",
     "gap_fill_message",
+    "reminder_message",
     "to_e164",
 ]

@@ -37,6 +37,7 @@ from collections.abc import Sequence
 from clinic_front_desk.models import (
     Appointment,
     ISODate,
+    ISODateTime,
     Slot,
     SlotStatus,
     StoreResult,
@@ -92,6 +93,29 @@ class AppointmentStore(ABC):
 
         Returns the released slot id. On failure the appointment is retained
         unchanged (Req 5.8).
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def mark_reminded(
+        self, id: str, *, at: ISODateTime, failed: str = ""
+    ) -> StoreResult[Appointment]:
+        """Record that the clinic tried to remind this patient.
+
+        Written whether or not the message arrived, with ``failed`` carrying the
+        reason when it did not. Recording only the successes would make a retry loop
+        that keeps texting an unreachable number, and would leave the clinic unable to
+        tell "never attempted" from "attempted and bounced" — which are different
+        problems with different answers.
+
+        Stamped on the appointment rather than kept in a send log because two things
+        depend on reading it back cheaply: reminding has to be **idempotent**, since a
+        second press of the button must not text a patient twice, and the no-show rate
+        is only answerable by comparing reminded appointments against un-reminded
+        ones.
+
+        A missing appointment is an error, not a silent no-op: the caller believed it
+        had something to remind about.
         """
         raise NotImplementedError
 

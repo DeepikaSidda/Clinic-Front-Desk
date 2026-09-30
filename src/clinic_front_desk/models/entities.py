@@ -200,6 +200,20 @@ class Appointment:
     status: AppointmentStatus = AppointmentStatus.BOOKED
     created_at: ISODateTime = ""
     updated_at: ISODateTime = ""
+    #: When the patient was reminded about this appointment, if they were.
+    #:
+    #: Stored on the appointment rather than inferred from a log, for two reasons.
+    #: It makes reminding **idempotent** — pressing the button twice must not text a
+    #: patient twice, and nothing else could tell the difference. And it is what makes
+    #: the no-show rate answerable: with this the clinic can compare the patients it
+    #: reminded against the ones it did not, instead of asserting that reminders help.
+    #:
+    #: Empty means not reminded. Set even when the send fails, and paired with
+    #: :attr:`reminder_failed` — the clinic attempted contact either way, and a retry
+    #: loop that keeps texting a number that keeps failing is its own harm.
+    reminded_at: ISODateTime = ""
+    #: Why the reminder did not arrive, when it did not. Empty on success.
+    reminder_failed: str = ""
 
     def __post_init__(self) -> None:
         if not self.provider_id:

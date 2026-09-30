@@ -269,6 +269,8 @@ def appointment_to_item(a: Appointment) -> Item:
         "status": AppointmentStatus(a.status).value,
         "created_at": a.created_at,
         "updated_at": a.updated_at,
+        "reminded_at": a.reminded_at,
+        "reminder_failed": a.reminder_failed,
     }
 
 
@@ -284,6 +286,10 @@ def appointment_from_item(item: Item) -> Appointment:
         status=AppointmentStatus(item["status"]),
         created_at=item.get("created_at", ""),
         updated_at=item.get("updated_at", ""),
+        # Defaulted, so the appointments already in the table read back fine rather
+        # than failing on a key that did not exist when they were written.
+        reminded_at=item.get("reminded_at", ""),
+        reminder_failed=item.get("reminder_failed", ""),
     )
 
 

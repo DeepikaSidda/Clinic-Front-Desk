@@ -23,6 +23,7 @@ from .sms import (
     SnsSmsSender,
     cancellation_message,
     gap_fill_message,
+    reminder_message,
     to_e164,
 )
 
@@ -34,5 +35,6 @@ __all__ = [
     "SnsSmsSender",
     "cancellation_message",
     "gap_fill_message",
+    "reminder_message",
     "to_e164",
 ]

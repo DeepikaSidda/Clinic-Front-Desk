@@ -27,6 +27,7 @@ from clinic_front_desk.models import (
     Appointment,
     AppointmentStatus,
     ISODate,
+    ISODateTime,
     Ok,
     Slot,
     SlotStatus,
@@ -134,6 +135,17 @@ class MemoryAppointmentStore(AppointmentStore, MemoryStoreBase):
         self._emit(ChangeEntity.SLOT, new_slot_id, ChangeKind.UPDATED)
         if old_slot is not None and old_slot_id != new_slot_id:
             self._emit(ChangeEntity.SLOT, old_slot_id, ChangeKind.UPDATED)
+        return Ok(self._copy(appt))
+
+    def mark_reminded(
+        self, id: str, *, at: ISODateTime, failed: str = ""
+    ) -> StoreResult[Appointment]:
+        appt = self._appointments.get(id)
+        if appt is None:
+            return not_found_err(_STORE, f"appointment {id!r} not found")
+        appt.reminded_at = at
+        appt.reminder_failed = failed
+        self._emit(ChangeEntity.APPOINTMENT, appt.id, ChangeKind.UPDATED)
         return Ok(self._copy(appt))
 
     def remove(self, id: str) -> StoreResult[SlotRelease]:
