@@ -368,6 +368,13 @@ def test_health_details_never_appear_on_the_calendar(client: Any, published: Any
 
     page = client.get(f"/slots?role=doctor&day={DAY}&provider_id={PROVIDER}").text
 
+    # Opaque identifiers are not disclosure. Patient and appointment ids are uuid4 hex
+    # and the calendar renders them into link targets, so any short digit run can turn
+    # up in one by chance — this test failed about once in 120 runs on a patient id of
+    # a169031750c64a5b886150c9905d58fb, which contains "175" and tells a reader nothing
+    # about the patient's height. Drop the ids, then look for the values themselves.
+    page = re.sub(r"\b[0-9a-f]{32}\b", "", page)
+
     assert "O+" not in page
     assert "72.5" not in page
     assert "175" not in page
