@@ -63,6 +63,40 @@
           <span class="voice-client__meter-fill" data-role="meter"></span>
         </div>
 
+        <!-- Typing instead of speaking.
+             This is an ENT clinic: hearing loss is the specialty, so a voice-only
+             front desk turns away exactly the patients most likely to need it.
+             Whatever is typed here is spoken for the caller server-side and answered
+             by the same agent, running the same tools under the same guardrails — the
+             reply arrives in the transcript above, which is all a deaf caller needs.
+             Also the fallback for a broken microphone, or a caller who cannot speak
+             comfortably, or anyone in a room where they would rather not. -->
+        <form class="voice-client__typed" data-role="typed-form">
+          <label class="voice-client__typed-label" for="voice-client-typed">
+            Prefer to type? Type here instead of speaking — the reply appears in the
+            transcript.
+          </label>
+          <div class="voice-client__typed-row">
+            <input
+              id="voice-client-typed"
+              type="text"
+              class="voice-client__typed-input"
+              data-role="typed-input"
+              placeholder="What time do you open?"
+              autocomplete="off"
+              disabled
+            />
+            <button
+              type="submit"
+              class="voice-client__typed-send"
+              data-role="typed-send"
+              disabled
+            >
+              Send
+            </button>
+          </div>
+        </form>
+
         <dl class="voice-client__stats">
           <div>
             <dt>Session</dt>

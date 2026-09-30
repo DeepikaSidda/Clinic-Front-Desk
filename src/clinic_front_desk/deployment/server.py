@@ -75,6 +75,7 @@ from clinic_front_desk.dashboard.shell import render_dashboard_shell
 from clinic_front_desk.data_layer.events import ChangeEvent
 from clinic_front_desk.models import CallOutcome, PatientRef, is_err
 from clinic_front_desk.handover.live import (
+    POLLY_SAMPLE_RATE,
     LiveCallRegistry,
     LiveHandoverService,
     default_region,
@@ -1457,7 +1458,7 @@ class AgentCoreServer:
                     if held is not None and held.taken_over:
                         self.live_calls.record_turn(session.session_id, "user", text)
                     else:
-                        await session.manager.send_text(text)
+                        await self._send_typed_turn(session, text, recorder)
                 continue
             audio = message.get("audio")
             if audio is None:
@@ -1505,6 +1506,68 @@ class AgentCoreServer:
                 sample_rate=sample_rate,
                 channels=int(message.get("channels", 1)),
             )
+
+    async def _send_typed_turn(
+        self, session: Any, text: str, recorder: Any = None
+    ) -> None:
+        """Give the model a typed turn, by speaking it for the caller.
+
+        This is the accessibility path, and it exists because of who this clinic's
+        patients are. It is an **ear, nose and throat** practice: hearing loss is the
+        specialty, so a voice-only front desk excludes precisely the people most
+        likely to need it. Someone who cannot hear the agent, or cannot speak
+        comfortably, types instead and reads the transcript.
+
+        It cannot be done by handing Nova Sonic the text. ``send_text`` forwards a
+        text turn and the model does not take it — measured against the deployed
+        stream, a typed turn produced zero transcript turns and zero audio frames,
+        because this is a speech-to-speech model and speech is what it answers. So the
+        text is synthesised with Amazon Polly and fed in as though the caller had
+        spoken it. The same tools run, the same guardrails run, the same transcript is
+        written; only the input device changed.
+
+        The reply still comes back as audio *and* as transcript. A deaf caller ignores
+        the first and reads the second, which the page already renders.
+
+        Nova Sonic transcribes the synthesised speech itself rather than us asserting
+        what was typed. That is deliberate: what the transcript shows is what the agent
+        actually understood, so a caller whose wording was misheard can see that and
+        retype, instead of reading their own words back and assuming they landed.
+        """
+        spoken: bytes | None = None
+        try:
+            spoken = await asyncio.to_thread(self.live_handover.synthesize, text)
+        except Exception as exc:  # noqa: BLE001 - a failed voice must not drop the call
+            logger.warning(
+                "could not speak the typed turn for %s: %s", session.session_id, exc
+            )
+
+        if not spoken:
+            # Polly is unavailable or refused. Keep the words rather than losing them:
+            # the caller typed something the clinic should have, even if the agent
+            # never got to answer it.
+            #
+            # Written to the recorder, which is what actually persists — the live
+            # registry only holds calls a human was called to, so recording there
+            # alone would have dropped the words on every ordinary call. ``user`` and
+            # not ``patient`` because that is the role Nova Sonic labels caller turns
+            # with, and the transcript has to stay consistent with the rest of it.
+            if recorder is not None:
+                recorder.add_turn("user", text)
+            self.live_calls.record_turn(session.session_id, "user", text)
+            return
+
+        if recorder is not None:
+            # A typed call is still a call, and the recording should contain the
+            # caller's side of it.
+            recorder.add_patient_audio(spoken, sample_rate=POLLY_SAMPLE_RATE)
+
+        await session.manager.send_audio(
+            base64.b64encode(spoken).decode("ascii"),
+            format="pcm",
+            sample_rate=POLLY_SAMPLE_RATE,
+            channels=1,
+        )
 
 
 # ---------------------------------------------------------------------------

@@ -151,3 +151,46 @@ def test_the_flag_accepts_the_obvious_affirmatives(value: str) -> None:
     client = TestClient(build_asgi_app_from_env(env))
 
     assert client.get("/slots?role=doctor").status_code == 404, value
+
+
+# -- the typed fallback is part of the caller-facing surface -----------------
+#
+# An ENT clinic whose front desk only accepts speech turns away the patients whose
+# hearing it treats. The typed path has to be on the *public* page, not behind a role,
+# so these sit here with the rest of the caller surface rather than in a UI test —
+# there is no JS harness in this repo, so the markup and the wiring it depends on are
+# pinned from the served response instead.
+
+
+def test_the_caller_page_offers_typing_as_well_as_speaking(voice_client: Any) -> None:
+    page = voice_client.get("/voice").text
+
+    assert 'data-role="typed-form"' in page
+    assert 'data-role="typed-input"' in page
+    assert 'data-role="typed-send"' in page
+    # Labelled for a screen reader and for a caller scanning the page, since the
+    # person who needs this is looking for it.
+    assert 'for="voice-client-typed"' in page
+    assert "Prefer to type?" in page
+
+
+def test_the_typed_controls_start_disabled(voice_client: Any) -> None:
+    # Typing is only meaningful inside a call, because the words are spoken into that
+    # call's stream. Disabled rather than hidden, so a caller who needs it can see it
+    # exists before committing to pressing Start call.
+    page = voice_client.get("/voice").text
+    typed_block = page.split('data-role="typed-form"', 1)[1].split("</form>", 1)[0]
+
+    assert typed_block.count("disabled") == 2, "both the input and the button"
+
+
+def test_the_client_script_sends_a_user_text_turn(voice_client: Any) -> None:
+    # The server turns user_text into Polly speech for the caller. If the client ever
+    # stopped sending that message type, the typed box would silently do nothing.
+    script = voice_client.get("/static/voice_client.js").text
+
+    assert "user_text" in script
+    assert "sendText" in script
+    # The caller's own typed line is echoed locally: the transcript otherwise shows
+    # only what the agent heard back, and a deaf caller would not see their own turn.
+    assert "You (typed)" in script

@@ -346,7 +346,11 @@ def test_activity_limit_must_be_a_non_negative_integer(client: Any) -> None:
 
 def test_ws_runs_a_call_session_and_persists_its_outcome(stream: FakeVoiceStream) -> None:
     app = build_memory_application(stream=stream)
-    http = TestClient(create_asgi_app(app))
+    server = AgentCoreServer(app)
+    # Stand in for Polly. A typed turn is spoken for the caller before it reaches the
+    # model — see the accessibility tests below for why it cannot just be sent as text.
+    server.live_handover.synthesize = lambda text: b"ABC"  # type: ignore[method-assign]
+    http = TestClient(create_asgi_app(app, server=server))
 
     with http.websocket_connect(
         "/ws", headers={SESSION_ID_HEADER: "runtime-session-7"}
@@ -362,7 +366,8 @@ def test_ws_runs_a_call_session_and_persists_its_outcome(stream: FakeVoiceStream
     assert ended["message_type"] == "session_ended"
     # No task completed, so the call is recorded as interrupted (Req 12.7).
     assert ended["outcome"] == CallOutcome.INTERRUPTED.value
-    assert stream.sent_text == ["I'd like to book."]
+    assert stream.sent_audio == ["QUJD"], "the typed turn arrives as speech"
+    assert stream.sent_text == [], "the text path the model ignores is not used"
     assert stream.closed is True
 
     persisted = app.stores.call_sessions.list_recent(10)
@@ -800,3 +805,104 @@ def test_the_prompt_forbids_dressing_the_offer_up_as_clinical_judgement() -> Non
     # The permitted reason, and the forbidden framings, are both stated.
     assert "same answer for every symptom" in lowered
     assert "isn't sure which service they need" in lowered
+
+
+# -- typing instead of speaking ---------------------------------------------
+#
+# The accessibility path, and it exists because of who this clinic's patients are.
+# It is an ear, nose and throat practice, so hearing loss is the specialty and a
+# voice-only front desk excludes exactly the people most likely to need it.
+#
+# It cannot be served by handing Nova Sonic the text. Measured against the deployed
+# stream, a bare text turn produced zero transcript turns and zero audio frames: this
+# is a speech-to-speech model and speech is what it answers. So the words are
+# synthesised and fed in as though the caller had spoken them, which means the same
+# tools, the same guardrails and the same transcript — only the input device changes.
+
+
+def test_a_typed_turn_is_spoken_for_the_caller(stream: FakeVoiceStream) -> None:
+    app = build_memory_application(stream=stream)
+    server = AgentCoreServer(app)
+    spoken: list[str] = []
+
+    def fake_synthesize(text: str) -> bytes:
+        spoken.append(text)
+        return b"ABC"
+
+    server.live_handover.synthesize = fake_synthesize  # type: ignore[method-assign]
+    http = TestClient(create_asgi_app(app, server=server))
+
+    with http.websocket_connect(
+        "/ws", headers={SESSION_ID_HEADER: "typed-1"}
+    ) as socket:
+        assert socket.receive_json()["message_type"] == "session_started"
+        socket.send_json(
+            {"message_type": "user_text", "text": "I cannot hear well, can I book?"}
+        )
+        socket.send_json({"message_type": "end_session"})
+        socket.receive_json()
+
+    assert spoken == ["I cannot hear well, can I book?"]
+    assert stream.sent_audio == ["QUJD"], "base64 of the synthesised PCM"
+    assert stream.sent_text == []
+
+
+def test_a_typed_turn_survives_polly_failing(
+    stream: FakeVoiceStream, caplog: pytest.LogCaptureFixture
+) -> None:
+    # Polly being unavailable must not drop the call or hand the model a turn it
+    # cannot answer. The failure has to be visible, because a caller who types and
+    # gets silence has no way of telling a broken clinic from a slow one.
+    #
+    # Where the words are kept depends on the deployment: the recorder is what
+    # persists a transcript, and a host with no recordings bucket configured has no
+    # transcript for any call. So this pins the part that always holds — nothing
+    # spoken, nothing sent, and a warning an operator can find.
+    app = build_memory_application(stream=stream)
+    server = AgentCoreServer(app)
+
+    def broken_synthesize(text: str) -> bytes:
+        raise RuntimeError("Polly is unavailable")
+
+    server.live_handover.synthesize = broken_synthesize  # type: ignore[method-assign]
+    http = TestClient(create_asgi_app(app, server=server))
+
+    with caplog.at_level("WARNING"):
+        with http.websocket_connect(
+            "/ws", headers={SESSION_ID_HEADER: "typed-2"}
+        ) as socket:
+            assert socket.receive_json()["message_type"] == "session_started"
+            socket.send_json(
+                {"message_type": "user_text", "text": "Are you open Sunday?"}
+            )
+            socket.send_json({"message_type": "end_session"})
+            ended = socket.receive_json()
+
+    assert ended["message_type"] == "session_ended", "the call still ends cleanly"
+    assert stream.sent_audio == [], "nothing was spoken, so nothing was sent"
+    assert stream.sent_text == [], "and not via the path the model ignores either"
+    assert "could not speak the typed turn" in caplog.text
+    assert "typed-2" in caplog.text, "the warning names the call"
+
+
+def test_an_empty_typed_turn_is_ignored(stream: FakeVoiceStream) -> None:
+    # An empty submit is a stray Enter key, not a turn. Synthesising silence would
+    # spend a Polly call and hand the model an empty utterance to answer.
+    app = build_memory_application(stream=stream)
+    server = AgentCoreServer(app)
+    calls: list[str] = []
+    server.live_handover.synthesize = lambda text: (  # type: ignore[method-assign]
+        calls.append(text) or b"ABC"
+    )
+    http = TestClient(create_asgi_app(app, server=server))
+
+    with http.websocket_connect(
+        "/ws", headers={SESSION_ID_HEADER: "typed-3"}
+    ) as socket:
+        assert socket.receive_json()["message_type"] == "session_started"
+        socket.send_json({"message_type": "user_text", "text": ""})
+        socket.send_json({"message_type": "end_session"})
+        socket.receive_json()
+
+    assert calls == []
+    assert stream.sent_audio == []

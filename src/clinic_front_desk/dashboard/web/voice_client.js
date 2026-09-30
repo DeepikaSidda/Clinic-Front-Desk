@@ -116,6 +116,9 @@
       "transcript-empty",
       "meter",
       "hint",
+      "typed-form",
+      "typed-input",
+      "typed-send",
     ].forEach(function (role) {
       el[role] = document.querySelector('[data-role="' + role + '"]');
     });
@@ -439,7 +442,22 @@
       if (el.meter) el.meter.style.width = "0%";
     }
 
-    return { start: start, stop: stop, setMuted: setMuted };
+    // Typing instead of speaking. The server speaks the line for the caller and
+    // hands it to the same agent, so this needs no audio path of its own — but the
+    // typed words are echoed locally, because the transcript otherwise shows only
+    // what the agent heard back and a deaf caller would not see their own turn.
+    function sendText(text) {
+      var line = (text || "").trim();
+      if (!line) return false;
+      if (!state.socket || state.socket.readyState !== 1) return false;
+      state.socket.send(
+        JSON.stringify({ message_type: "user_text", text: line })
+      );
+      addLine("You (typed)", line);
+      return true;
+    }
+
+    return { start: start, stop: stop, setMuted: setMuted, sendText: sendText };
   }
 
   // --- wiring ------------------------------------------------------------
@@ -471,12 +489,35 @@
       return;
     }
 
+    // Typing is only meaningful once a call exists, since the words are spoken into
+    // that call's stream. Kept disabled until then rather than hidden, so a caller
+    // who needs it can see it is there before committing to pressing Start call.
+    function setTypedEnabled(enabled) {
+      if (el["typed-input"]) el["typed-input"].disabled = !enabled;
+      if (el["typed-send"]) el["typed-send"].disabled = !enabled;
+    }
+
+    if (el["typed-form"]) {
+      el["typed-form"].addEventListener("submit", function (event) {
+        event.preventDefault();
+        var input = el["typed-input"];
+        if (!input || !call) return;
+        if (call.sendText(input.value)) {
+          input.value = "";
+          // Keep focus for a conversation, not a single question: someone using this
+          // is having a whole exchange by keyboard.
+          input.focus();
+        }
+      });
+    }
+
     el.start.addEventListener("click", async function () {
       el.start.disabled = true;
       call = createCall();
       try {
         await call.start();
         el.stop.disabled = false;
+        setTypedEnabled(true);
       } catch (err) {
         setStatus("offline", "Failed");
         // The overwhelmingly common cause is a denied mic permission, so say so
@@ -487,12 +528,14 @@
             : "Could not start the call: " + (err && err.message ? err.message : err);
         addNote(message, "error");
         el.start.disabled = false;
+        setTypedEnabled(false);
         call = null;
       }
     });
 
     el.stop.addEventListener("click", async function () {
       el.stop.disabled = true;
+      setTypedEnabled(false);
       setStatus("idle", "Ending call");
       if (call) await call.stop();
       call = null;
