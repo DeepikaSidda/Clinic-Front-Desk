@@ -1,4 +1,8 @@
-# Agents for Humans: A Voice Agent That Answers a Clinic's Phone and Never Invents an Answer
+# A Voice Agent That Answers a Clinic's Phone and Never Invents an Answer
+
+**Category:** Commercial potential · **Lane:** Startups
+
+---
 
 ## The problem
 
@@ -262,9 +266,29 @@ Calls are answered **in the browser**. I also wrote and tested an **Amazon Conne
 
 ---
 
+## How the coding agent shipped this
+
+Spec first: `.kiro/specs/` holds requirements, a design, then **92 tasks, all closed**, and those requirement ids are cited **564 times** across source and tests. That traceability is what made it safe to let an agent write this much code.
+
+The most useful work was finding what tests could not. Adding a typed-text input looked like one line — hand the text to the model. Against the live URL it produced **zero transcript turns and zero audio chunks**, because Nova Sonic is speech-to-speech and text handed to it as text goes nowhere. Synthesising through Polly then failed again, silently: voice activity detection waits for speech to *stop*, and a typist never stops. It needed trailing silence frames. Neither failure is reachable from a unit test. Both surfaced only because the agent could deploy and count what came back: four turns, 118 chunks.
+
+### Proof the agent was connected to AWS
+
+The AWS SDK records the calling application in every request's `User-Agent`. Kiro sets `AWS_SDK_UA_APP_ID=kiro-ide`, so each call arrived stamped `app/kiro-ide` and **CloudTrail kept it** — AWS's own log, not ours. A human clicking in the console cannot produce that string, so filtering on it isolates exactly the agent's calls:
+
+| Time (UTC) | API call | What it did | Event ID |
+| --- | --- | --- | --- |
+| 2026-09-30 08:52 | `dynamodb:UpdateTable` | deletion protection → `true` | `49f9c645-8df7-4ed7-9892-88fa19aa5948` |
+| 2026-09-30 08:52 | `dynamodb:UpdateContinuousBackups` | point-in-time recovery → `true` | `67009766-4377-4af3-8176-a31998ee8307` |
+| 2026-09-30 06:11–07:58 | `ssm:SendCommand` ×7 | deployed to EC2 `i-03870afbda704cacd` | `2d3a5167…` + 6 more |
+
+Paste any into **CloudTrail → Event history → Event ID** and read the `userAgent` yourself. Full evidence, including a call made live and found again in the trail: [`docs/AGENT_AWS_PROOF.md`](https://github.com/DeepikaSidda/Clinic-Front-Desk/blob/main/docs/AGENT_AWS_PROOF.md).
+
+---
+
 ## Where it stands
 
-**1,793 tests passing. `mypy --strict` clean across 114 source files.** All offline, no credentials needed. Concurrency verified at 50 simultaneous callers against the live public URL with zero failures, and a greeting latency near one second.
+**1,824 tests passing. `mypy --strict` clean across 114 source files.** All offline, no credentials needed. Concurrency verified at 50 simultaneous callers against the live public URL with zero failures, and a greeting latency near one second.
 
 ---
 

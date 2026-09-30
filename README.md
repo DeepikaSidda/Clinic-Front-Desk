@@ -149,7 +149,7 @@ record, visible in the dashboard's call log.
 | **Storage** | Amazon DynamoDB, single table, 4 GSIs |
 | **Documents** | Amazon S3 + Bedrock embeddings, doctor-uploaded PDFs |
 | **Hosting** | CloudFront + EC2 `t4g.small` (public demo) · Bedrock AgentCore Runtime (container) |
-| **Quality** | **1,787 tests**, `mypy --strict` clean across **114** source files |
+| **Quality** | **1,824 tests**, `mypy --strict` clean across **114** source files |
 | **Language** | Python 3.12 |
 
 
@@ -895,7 +895,7 @@ means no patient audio is captured.
 
 ## Testing
 
-**1,787 tests. `mypy --strict` clean across 114 source files.** The whole suite runs
+**1,824 tests. `mypy --strict` clean across 114 source files.** The whole suite runs
 offline against in-memory stores and a fake voice stream — no credentials, no cost.
 
 ```powershell

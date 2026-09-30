@@ -231,7 +231,7 @@ The part that mattered most for a clinic is the **tool contract**. A Python func
 
 Every tool returns the same shape — success with a value, or failure with a typed error — so the model always receives a discriminated result rather than a stringly-typed maybe. Each tool is closed over its data-layer stores before the model ever sees it, so no store, table name or credential appears in the model-facing schema. The model can call `book_appointment`; it cannot reach the database.
 
-Strands also let us keep the model **swappable and injectable**. The voice adapter builds a real `BidiNovaSonicModel` in production, but accepts an injected model or a fully-formed agent instead — which is exactly how 1,787 tests run without touching Bedrock. The real Strands and Bedrock imports happen lazily inside `start()` rather than at module import, so the rest of the system imports and tests cleanly on a machine with no AWS credentials and no native AWS Common Runtime build.
+Strands also let us keep the model **swappable and injectable**. The voice adapter builds a real `BidiNovaSonicModel` in production, but accepts an injected model or a fully-formed agent instead — which is exactly how 1,824 tests run without touching Bedrock. The real Strands and Bedrock imports happen lazily inside `start()` rather than at module import, so the rest of the system imports and tests cleanly on a machine with no AWS credentials and no native AWS Common Runtime build.
 
 **The tool boundary is the architecture.** Twelve patient-facing tools: `match_offered_service`, `suggest_service_for_problem`, `check_availability`, `register_patient`, `lookup_patient`, `list_appointments`, `book_appointment`, `reschedule`, `cancel`, `add_to_waitlist`, `answer_faq`, `flag_for_human`. Two are deliberately absent — `fill_gap_from_waitlist` is doctor-approved only, and `analyze_patterns` belongs to Practice Intelligence.
 
@@ -241,7 +241,7 @@ Strands also let us keep the model **swappable and injectable**. The voice adapt
 
 **One DynamoDB table, four GSIs.** GSI1 is the one that earns its keep: its sort key is the slot start, so availability skips past days *at the index* rather than reading and discarding them. Slot ids are derived from day, provider and start time rather than random — `slot-prov-raana-2026-09-15-0900` — which makes republishing a day idempotent, while booked and blocked slots are deliberately preserved so a republish can never strand a patient's appointment.
 
-**Spec-driven, in Kiro.** Requirements, then design, then a task list in `.kiro/specs/`, then implementation against them. Every requirement has an id, and those ids appear in the code and test docstrings. When we later asked "why does availability take a `from_time`?", the answer was in the spec rather than in someone's memory.
+**Spec-driven, in Kiro.** Requirements, then design, then a task list in `.kiro/specs/`, then implementation against them. Months later, asking "why does availability take a `from_time`?" had an answer in the spec rather than in someone's memory. More on what that bought us below.
 
 **Deployed on CloudFront + EC2**, for an unglamorous reason: browsers refuse microphone access outside a secure context, so HTTPS was non-negotiable. CloudFront gives a valid certificate on `*.cloudfront.net` with no domain to buy, and forwards WebSocket upgrades. A `t4g.small` origin accepts traffic **only** from CloudFront's origin-facing IP ranges, so nobody can bypass the certificate over plain HTTP.
 
@@ -254,6 +254,38 @@ The public deployment serves the caller-facing routes, and the doctor's calendar
 The live console is the one exception, and it had to be. Calls in progress are held **in memory, per process**: a caller on the public URL is registered inside that container, so a console running on a laptop sees an empty list however much it is permitted to see. The call is not there to be taken. To answer a real call, the console has to be served by the process holding it.
 
 So it is published behind a shared secret — opt-in via `CLINIC_CONSOLE_TOKEN`, compared with `hmac.compare_digest`, absent by default — and it publishes the live console *only*. Stored records, the calendar, documents, onboarding and the JSON tool surface stay unrouted **even with a valid token**. The secret buys calls in progress, never the clinic's history. Verified through CloudFront rather than just against the instance: console 200 with the token, 403 without, the doctor's audio socket upgrading to 101 only with it, and every record path still 404.
+
+### How the coding agent shipped this
+
+The spec came first and the agent worked against it, which is the part that scaled. `.kiro/specs/clinic-front-desk-agent/` holds requirements, then a design, then a task list: **92 tasks, all closed.** Every requirement carries an id, and those ids are cited **564 times** across source and tests, so a change to behaviour lands next to the sentence that asked for it. That traceability is what made it safe to let an agent write this much code. A test docstring that says *Req 15.3* can be checked against Req 15.3.
+
+**The agent's real contribution was the boring half.** Two store implementations held to one contract, in-memory and DynamoDB, exercised by the same suite; 1,824 tests; `mypy --strict` clean across 114 files. That is a volume of scaffolding a solo builder either writes or skips, and skipping it is how voice agents end up confidently wrong. Here the tests are the reason the model cannot invent availability.
+
+**But the agent's most useful work was finding what tests could not.** Adding a typed-text input to the call page looked like a one-line change: pass the text to the model. Deployed and measured against the live URL, it produced **zero transcript turns and zero audio chunks.** Nova Sonic is speech-to-speech, so text handed to it as text goes nowhere. The fix was to synthesise the typed sentence with Polly and feed it into the same audio path a microphone uses. That still failed, silently, for a second reason: voice activity detection waits for speech to *stop*, and a typist never stops. It needed trailing silence frames appended to every typed turn. Neither failure is visible in a unit test, because both are properties of a remote model's streaming contract. They showed up because the agent could deploy to the real instance and count what came back: four turns, 118 audio chunks.
+
+That loop, change the code, push it to the live host, measure the actual stream, is the thing that shipped this. The push itself is `ssm:SendCommand` from the agent, which is why it appears in the audit trail below.
+
+### The coding agent's connection to AWS, proved rather than claimed
+
+This was built with a coding agent (Kiro) holding credentials for the account it deployed into. Saying so is easy; the interesting question is what would settle it for someone who does not take our word for it. A chat transcript will not — a transcript is a picture of text.
+
+**CloudTrail settles it, because AWS writes CloudTrail and we do not.** The AWS SDK puts the calling application into the `User-Agent` header of every request, and Kiro sets `AWS_SDK_UA_APP_ID=kiro-ide` in the environment it gives the agent. So every boto3 call the agent made arrived at AWS stamped `app/kiro-ide`, and the trail kept the header verbatim:
+
+```
+Boto3/1.43.89 … lang/python#3.12.3 … app/kiro-ide Botocore/1.43.89
+```
+
+A human clicking in the browser console cannot produce that string, which makes the filter exact: it isolates the calls that came from the agent and nothing else. Two of them changed production configuration, and seven of them deployed to the instance serving the demo:
+
+| Time (UTC) | API | What it did | CloudTrail event ID |
+| --- | --- | --- | --- |
+| 2026-09-30T08:52:32Z | `dynamodb:UpdateTable` | deletion protection → `true` on `clinic-front-desk` | `49f9c645-8df7-4ed7-9892-88fa19aa5948` |
+| 2026-09-30T08:52:33Z | `dynamodb:UpdateContinuousBackups` | point-in-time recovery → `true` | `67009766-4377-4af3-8176-a31998ee8307` |
+| 2026-09-30T06:11–07:58Z | `ssm:SendCommand` ×7 | ran `AWS-RunShellScript` on `i-03870afbda704cacd` | `2d3a5167…`, `779e507a…`, `f8fd2cbf…`, `5497ffbe…`, `7afd6d44…`, `d4f77134…`, `e4232c11…` |
+
+Any of those IDs pasted into **CloudTrail → Event history → Lookup attributes → Event ID** shows the full record, `userAgent` included.
+
+`scripts/agent_aws_proof.py` regenerates the whole evidence file, and does one thing a static table cannot: it makes a fresh API call, holds onto the request ID, then polls the trail until that exact call comes back — so the document ends up citing a call made while it was being written, not a story about the past. It took about three minutes to surface. Full output in [`docs/AGENT_AWS_PROOF.md`](docs/AGENT_AWS_PROOF.md).
 
 ## Challenges we ran into
 
@@ -370,7 +402,7 @@ A test that passes while proving nothing is worse than no test, because it buys 
 
 **It is live, and anyone can call it.** Not a video, not a localhost demo — a public HTTPS URL with a real certificate, real Nova Sonic audio and real DynamoDB writes. Verified end to end: `/ping`, the page, the assets, a genuine `wss://` handshake returning **101 Switching Protocols** through CloudFront, and a `session_started` frame that only arrives *after* the Bedrock stream opens.
 
-**1,787 tests. `mypy --strict` clean across 114 source files.** All offline, no credentials needed — including property-based tests with Hypothesis and latency tests asserting response start $\le 1.5$ s and barge-in stop $\le 500$ ms.
+**1,824 tests. `mypy --strict` clean across 114 source files.** All offline, no credentials needed — including property-based tests with Hypothesis and latency tests asserting response start $\le 1.5$ s and barge-in stop $\le 500$ ms.
 
 **Fifty simultaneous callers, zero failures.** Every one got its own Nova Sonic session and its own distinct session id, with no Bedrock throttling: 3, 5, 10 and 50 concurrent calls against the live public URL. Greeting latency held near half a second at five callers and about four seconds at fifty — which we traced to thread-pool queueing on two vCPUs rather than anything in the model path.
 
