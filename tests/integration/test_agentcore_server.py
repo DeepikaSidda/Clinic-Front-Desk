@@ -18,6 +18,7 @@ Bedrock, no network — so the deployable surface is verified in CI.
 from __future__ import annotations
 
 import asyncio
+import base64
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -26,10 +27,12 @@ import pytest
 from clinic_front_desk.dashboard.role_gate import Role
 from clinic_front_desk.deployment import build_memory_application
 from clinic_front_desk.deployment.server import (
+    FRAME_SAMPLES,
     PING_HEALTHY,
     PING_HEALTHY_BUSY,
     ROLE_HEADER,
     SESSION_ID_HEADER,
+    TYPED_TURN_SILENCE_FRAMES,
     AgentCoreServer,
     create_asgi_app,
     runtime_config_from_env,
@@ -366,7 +369,7 @@ def test_ws_runs_a_call_session_and_persists_its_outcome(stream: FakeVoiceStream
     assert ended["message_type"] == "session_ended"
     # No task completed, so the call is recorded as interrupted (Req 12.7).
     assert ended["outcome"] == CallOutcome.INTERRUPTED.value
-    assert stream.sent_audio == ["QUJD"], "the typed turn arrives as speech"
+    assert stream.sent_audio[0] == "QUJD", "the typed turn arrives as speech"
     assert stream.sent_text == [], "the text path the model ignores is not used"
     assert stream.closed is True
 
@@ -843,8 +846,16 @@ def test_a_typed_turn_is_spoken_for_the_caller(stream: FakeVoiceStream) -> None:
         socket.receive_json()
 
     assert spoken == ["I cannot hear well, can I book?"]
-    assert stream.sent_audio == ["QUJD"], "base64 of the synthesised PCM"
     assert stream.sent_text == []
+    # The speech first, then silence. Both matter: Nova Sonic waits for speech to stop
+    # before answering, and a typed caller streams no audio of their own, so nothing
+    # else would ever arrive to end their sentence. Sending the utterance alone left
+    # the model holding the turn and the caller staring at nothing.
+    assert stream.sent_audio[0] == "QUJD", "base64 of the synthesised PCM"
+    assert len(stream.sent_audio) == 1 + TYPED_TURN_SILENCE_FRAMES
+    assert set(stream.sent_audio[1:]) == {
+        base64.b64encode(bytes(FRAME_SAMPLES * 2)).decode("ascii")
+    }, "the tail is silence, at the cadence a microphone would send"
 
 
 def test_a_typed_turn_survives_polly_failing(

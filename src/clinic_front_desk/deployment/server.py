@@ -75,6 +75,7 @@ from clinic_front_desk.dashboard.shell import render_dashboard_shell
 from clinic_front_desk.data_layer.events import ChangeEvent
 from clinic_front_desk.models import CallOutcome, PatientRef, is_err
 from clinic_front_desk.handover.live import (
+    FRAME_SAMPLES,
     POLLY_SAMPLE_RATE,
     LiveCallRegistry,
     LiveHandoverService,
@@ -622,6 +623,19 @@ _LIVE_CONSOLE_HTML = _LIVE_CONSOLE_HTML.replace("__BUILD__", _LIVE_CONSOLE_BUILD
 #: forever, with a Nova Sonic stream open behind it.
 CALLER_IDLE_TIMEOUT_SECONDS = float(
     os.environ.get("CLINIC_CALLER_IDLE_TIMEOUT_SECONDS") or 60.0
+)
+
+#: Quiet frames appended after a typed turn, so the model's turn detection fires.
+#:
+#: ~32 ms each, so about half a second of silence. A caller who types sends no audio
+#: of their own, which means nothing will ever arrive to mark the end of their
+#: sentence. Nova Sonic has voice-activity detection in front of it and waits for
+#: speech to *stop* before answering — a microphone supplies that by streaming quiet
+#: frames between sentences. Without these the model sat holding the turn and the
+#: caller got nothing, measured on the deployed stream. Half a second clears MEDIUM
+#: endpointing while still feeling immediate to someone who just pressed Send.
+TYPED_TURN_SILENCE_FRAMES = int(
+    os.environ.get("CLINIC_TYPED_TURN_SILENCE_FRAMES") or 16
 )
 
 #: Never cache this, anywhere, by anyone.
@@ -1562,12 +1576,33 @@ class AgentCoreServer:
             # caller's side of it.
             recorder.add_patient_audio(spoken, sample_rate=POLLY_SAMPLE_RATE)
 
-        await session.manager.send_audio(
-            base64.b64encode(spoken).decode("ascii"),
-            format="pcm",
-            sample_rate=POLLY_SAMPLE_RATE,
-            channels=1,
-        )
+        # Framed at the cadence a microphone would produce, then followed by silence.
+        #
+        # Both halves are load-bearing, and sending the whole utterance as one blob
+        # with nothing after it is why the first version of this got no reply at all:
+        # the model has voice-activity detection in front of it, so it waits for
+        # speech to *stop* before taking its turn. A single chunk never stops — a real
+        # microphone keeps streaming quiet frames between sentences, and that silence
+        # is the cue. With none arriving, Nova Sonic sat holding the turn and the
+        # caller saw nothing, which looks exactly like a broken clinic.
+        frame_bytes = FRAME_SAMPLES * 2
+        for offset in range(0, len(spoken), frame_bytes):
+            await session.manager.send_audio(
+                base64.b64encode(spoken[offset : offset + frame_bytes]).decode("ascii"),
+                format="pcm",
+                sample_rate=POLLY_SAMPLE_RATE,
+                channels=1,
+            )
+
+        silence = bytes(frame_bytes)
+        encoded_silence = base64.b64encode(silence).decode("ascii")
+        for _ in range(TYPED_TURN_SILENCE_FRAMES):
+            await session.manager.send_audio(
+                encoded_silence,
+                format="pcm",
+                sample_rate=POLLY_SAMPLE_RATE,
+                channels=1,
+            )
 
 
 # ---------------------------------------------------------------------------
