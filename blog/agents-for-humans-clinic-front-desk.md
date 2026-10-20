@@ -25,7 +25,7 @@ Open the three pages side by side and watch a single call move across all of the
 | [Start a call](https://d21u7cmj563imv.cloudfront.net/voice) | [See the appointments](https://d21u7cmj563imv.cloudfront.net/slots?role=doctor&day=2026-09-12) | [Watch live calls](https://d21u7cmj563imv.cloudfront.net/live?role=doctor&k=POsBgStYRRE64ZBytbrGdWvelnWXhrLd6jh6oLT3Af8) |
 | Book, reschedule, cancel, ask anything | A full clinic day — 12 Sep 2026 | Take over a call in your own voice |
 
-**Start with [12 September 2026](https://d21u7cmj563imv.cloudfront.net/slots?role=doctor&day=2026-09-12).** That is a full clinic day: 17 booked, 5 open at 11:00, 12:30, 14:30, 16:30 and 18:00, every booked cell naming its patient. **26 September to 2 October 2026** are filled the same way. Sunday 27 September is empty because it is the clinic holiday — worth testing on its own, since asking the agent for that Sunday gets you "we're closed, the nearest I have is Monday" rather than a shrug.
+**Start with [12 September 2026](https://d21u7cmj563imv.cloudfront.net/slots?role=doctor&day=2026-09-12).** That is a full clinic day: **17 booked** with every cell naming its patient, **4 open** at 11:00, 12:30, 14:30 and 16:30, and one **blocked** at 18:00 so the doctor's block control is visible too. Every other published day is open, and the calendar runs to 31 December 2026. Sunday is the clinic holiday and has no slots at all — worth testing on its own, since asking the agent for a Sunday gets you "we're closed, the nearest I have is Monday" rather than a shrug.
 
 **Book a slot on a call and watch it get taken.** Move the Day picker to today or later first — the agent never offers a time that has already started, so a past date can be read but not booked into. Find a cell marked **open**, then on the caller page press Start call and ask for it: *"I'd like to book an ENT consultation at half past twelve today."* Give a name and mobile when asked. Reload the appointment page and that cell reads booked, with your name on it.
 
@@ -302,7 +302,7 @@ Everything below is live. Nothing is a recording.
 
 A microphone and a Chromium-based browser give the full experience on the two pages that carry audio. **No microphone is no obstacle** — press Start call and type into the box under the transcript; it reaches the same agent, and the reply comes back as speech.
 
-**Open 12 September 2026 first.** That is a full clinic day — 17 booked, 5 open, every booked cell naming the patient who took it. Most other dates are empty, and the page makes no sense on an empty day.
+**Open 12 September 2026 first.** That is a full clinic day — 17 booked, 4 open, one blocked, every booked cell naming the patient who took it. Other dates are open rather than busy, and the page makes less sense on a quiet day.
 
 ### 1. Talk to it
 

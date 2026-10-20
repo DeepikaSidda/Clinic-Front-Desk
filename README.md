@@ -22,7 +22,7 @@ Set the appointment page's **Day** picker to `12-09-2026`, or use this link:
 
 **https://d21u7cmj563imv.cloudfront.net/slots?role=doctor&day=2026-09-12**
 
-That is a real clinic day the agent filled: **17 booked, 5 open**, and every booked cell names
+That is a real clinic day the agent filled: **17 booked, 4 open, one blocked**, and every booked cell names
 the patient who took it. Open that before anything else — the page makes no sense on an empty
 day, and most dates are empty.
 
@@ -36,15 +36,16 @@ Then open the three pages side by side and watch a single call move across all o
 > **Which dates to look at.**
 >
 > **To see a full clinic day: [12 September 2026](https://d21u7cmj563imv.cloudfront.net/slots?role=doctor&day=2026-09-12)**
-> — 17 booked, 5 open, every booked cell naming its patient. That is the day to open first.
+> — 17 booked with every cell naming its patient, 4 open, and one blocked at 18:00. That is the
+> day to open first.
 >
 > **To book one yourself on a call, use today or later.** The agent will not offer a time that
-> has already started, so a past date can be read but not booked into. The diary is also filled
-> for **26 September to 2 October 2026**, with the same 17 booked and 5 open per day.
+> has already started, so a past date can be read but not booked into. Every published day from
+> today to **31 December 2026** is open and bookable.
 >
-> **Sunday 27 September is empty on purpose** — it is the clinic holiday, and it is worth a test
-> of its own: ask the agent for that Sunday and it says the clinic is closed and offers the
-> Monday instead. From **3 October** every slot is still open.
+> **Sunday is empty on purpose** — it is the clinic holiday, so no slots are published for it at
+> all. Worth a test of its own: ask the agent for a Sunday and it says the clinic is closed and
+> offers the Monday instead.
 >
 > Every page below accepts `&day=YYYY-MM-DD`, so you can jump straight to any date.
 
@@ -84,8 +85,8 @@ like: `9900012307` and *"nine nine zero zero zero one two three zero seven"* bot
 **[https://d21u7cmj563imv.cloudfront.net/slots?role=doctor&day=2026-09-12](https://d21u7cmj563imv.cloudfront.net/slots?role=doctor&day=2026-09-12)**
 
 The day as a grid — Morning, Afternoon, Evening — each cell showing its time, its service, and
-when taken, the patient's name. **12 September 2026** is a full day: 17 booked, 5 open at
-`11:00`, `12:30`, `14:30`, `16:30` and `18:00`.
+when taken, the patient's name. **12 September 2026** is a full day: 17 booked, 4 open at
+`11:00`, `12:30`, `14:30` and `16:30`, and `18:00` blocked.
 
 To book one yourself, switch the **Day** picker to today or a later date — the agent will not
 offer a time that has already started, so the 12th can be read but not booked into. Then:

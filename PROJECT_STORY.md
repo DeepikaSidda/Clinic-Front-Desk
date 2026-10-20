@@ -40,13 +40,13 @@ and ask for it — *"I'd like to book an ENT consultation at half past twelve to
 page and that cell reads booked, with your name on it.
 
 **Open [12 September 2026](https://d21u7cmj563imv.cloudfront.net/slots?role=doctor&day=2026-09-12)
-to see a full clinic day** — 17 booked, 5 open at 11:00, 12:30, 14:30, 16:30 and 18:00, every
-booked cell naming its patient. To book one yourself, move the Day picker to today or later: the
-agent never offers a time that has already started, so a past date can be read but not booked
-into. **26 September to 2 October 2026** are filled the same way.
+to see a full clinic day** — 17 booked with every cell naming its patient, 4 open at 11:00,
+12:30, 14:30 and 16:30, and one blocked at 18:00. To book one yourself, move the Day picker to
+today or later: the agent never offers a time that has already started, so a past date can be
+read but not booked into. Every published day through 31 December 2026 is open.
 
-Sunday 27 September is empty because it is the clinic holiday, and that is worth testing on its
-own: ask the agent for that Sunday and it says the clinic is closed and offers you the Monday.
+Sunday is the clinic holiday and has no slots published at all, which is worth testing on its
+own: ask the agent for a Sunday and it says the clinic is closed and offers you the Monday.
 
 Then push on it. Ask for a time already taken and it says so rather than double-booking — the
 slot is re-checked as still open at the moment of writing, so two callers racing for one slot
