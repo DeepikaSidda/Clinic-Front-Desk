@@ -15,6 +15,7 @@ a patient who did nothing wrong, which also poisons the no-show trend the second
 reports on.
 """
 
+from .reminders import ReminderRun, remind_booked_on_day
 from .sms import (
     DEFAULT_COUNTRY_CODE,
     NullSmsSender,
@@ -30,11 +31,13 @@ from .sms import (
 __all__ = [
     "DEFAULT_COUNTRY_CODE",
     "NullSmsSender",
+    "ReminderRun",
     "SmsOutcome",
     "SmsSender",
     "SnsSmsSender",
     "cancellation_message",
     "gap_fill_message",
+    "remind_booked_on_day",
     "reminder_message",
     "to_e164",
 ]
