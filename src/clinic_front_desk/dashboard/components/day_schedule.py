@@ -427,15 +427,15 @@ def _render_block_form(view: DayScheduleViewModel) -> str:
 def _render_remind_form(view: DayScheduleViewModel) -> str:
     """One button that texts every booked patient on this day.
 
-    Pressed by the doctor rather than fired by a scheduler, and that is honest rather
-    than lazy: nothing in this deployment runs on a timer, so a reminder advertised as
-    going out "the day before" would be advertising something that does not happen. A
-    button at the end of surgery does the same work and cannot quietly stop running.
+    No longer the only way reminders go out. An EventBridge Schedule now runs the same
+    work at 18:00 clinic time for the next day, so the ordinary case needs nobody to
+    remember it. The button stays because the schedule only ever covers tomorrow: a day
+    further out, or one the schedule missed, still needs a human to say "this one, now".
 
-    Safe to press twice. Each appointment carries the moment it was reminded, so a
-    second press skips whoever already had their message instead of sending it again —
-    which matters because the doctor who cannot remember whether she pressed it is
-    exactly the person who will press it again.
+    Safe to press twice, and that property is load-bearing now rather than merely
+    convenient. Each appointment carries the moment it was reminded, so a second press
+    skips whoever already had their message — which is what keeps the doctor and the
+    timer from both texting the same patient on the same evening.
     """
     return (
         f'<form class="day-schedule__remind" method="post" '

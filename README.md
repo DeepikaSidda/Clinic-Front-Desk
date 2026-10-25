@@ -840,6 +840,9 @@ without a rebuild.
 | `CLINIC_EMBEDDING_MODEL_ID` | *(Bedrock)* | Document search embeddings |
 | `CLINIC_EXTRACTION_MODEL_ID` | *(Bedrock)* | Pre-fills clinic config from a PDF |
 | `CLINIC_ANALYSIS_INTERVAL_HOURS` | `24` | Practice Intelligence cadence |
+| `CLINIC_SMS_ENABLED` | *(off)* | `1` actually sends texts. Unset, messages are logged and not delivered |
+| `CLINIC_REMINDER_LEAD_DAYS` | `1` | Read by the scheduled reminder function: how far ahead it reminds |
+| `CLINIC_UTC_OFFSET_MINUTES` | `330` | The clinic's clock against UTC, so "tomorrow" is the clinic's tomorrow and not the server's |
 | `CLINIC_CREATE_TABLE_IF_MISSING` | *(off)* | `1`/`true`/`yes` |
 | `CLINIC_DYNAMODB_ENDPOINT_URL` | *(unset)* | Point at DynamoDB Local |
 | `CLINIC_LOG_LEVEL` | `INFO` | |

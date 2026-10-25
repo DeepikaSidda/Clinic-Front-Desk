@@ -1,0 +1,124 @@
+{
+  "Comment": [
+    "Two roles for the nightly appointment-reminder run. Four documents in one",
+    "file: attach 'LambdaTrustPolicy' and 'LambdaPermissions' to the function's",
+    "execution role, and 'SchedulerTrustPolicy' and 'SchedulerPermissions' to the",
+    "role EventBridge Scheduler assumes to invoke it.",
+    "Replace ACCOUNT_ID, REGION, TABLE_NAME, and FUNCTION_NAME.",
+    "Created by scripts/deploy_reminder_schedule.py, which fills these in.",
+    "The split is deliberate: the schedule may start the work and nothing else,",
+    "and the work may touch the table and SNS and nothing else. Neither role can",
+    "do the other's job."
+  ],
+
+  "LambdaTrustPolicy": {
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "Sid": "AllowLambdaToAssume",
+        "Effect": "Allow",
+        "Principal": { "Service": "lambda.amazonaws.com" },
+        "Action": "sts:AssumeRole"
+      }
+    ]
+  },
+
+  "LambdaPermissions": {
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "SidComment": [
+          "Exactly the four operations the reminder path performs, and no more.",
+          "Query  - list_by_provider_and_day reads PK=PROV#<id>, SK begins_with",
+          "         APPT#<day>#, which is a main-table query.",
+          "GetItem- reading a patient record and the clinic knowledge base.",
+          "Scan   - non-obvious, and omitting it is how this fails at six in the",
+          "         evening with AccessDenied: mark_reminded resolves an",
+          "         appointment id through _find_by_entity_id, which is a filtered",
+          "         scan, because the single-table key is composite and the id",
+          "         alone does not carry it.",
+          "PutItem- also non-obvious. mark_reminded writes the whole item back",
+          "         rather than patching a field, so this needs PutItem and NOT",
+          "         UpdateItem.",
+          "Deliberately absent: DeleteItem and BatchWriteItem. A reminder run has",
+          "no business removing an appointment, and a role that cannot delete",
+          "cannot delete by accident."
+        ],
+        "Sid": "ReminderTableAccess",
+        "Effect": "Allow",
+        "Action": [
+          "dynamodb:Query",
+          "dynamodb:Scan",
+          "dynamodb:GetItem",
+          "dynamodb:PutItem"
+        ],
+        "Resource": [
+          "arn:aws:dynamodb:REGION:ACCOUNT_ID:table/TABLE_NAME",
+          "arn:aws:dynamodb:REGION:ACCOUNT_ID:table/TABLE_NAME/index/*"
+        ]
+      },
+      {
+        "SidComment": [
+          "sns:Publish with no Resource is how SNS sends to a bare phone number:",
+          "an SMS to a PhoneNumber has no topic ARN to scope to. Grants no topic",
+          "or subscription management - this sends one message per patient, it",
+          "does not administer a messaging platform."
+        ],
+        "Sid": "TextThePatient",
+        "Effect": "Allow",
+        "Action": ["sns:Publish"],
+        "Resource": "*"
+      },
+      {
+        "SidComment": [
+          "A reminder run that fails silently is worse than one that never ran,",
+          "because the clinic then believes those patients were told. The log is",
+          "the only place a failed evening becomes visible."
+        ],
+        "Sid": "Observability",
+        "Effect": "Allow",
+        "Action": [
+          "logs:CreateLogGroup",
+          "logs:CreateLogStream",
+          "logs:PutLogEvents"
+        ],
+        "Resource": "arn:aws:logs:REGION:ACCOUNT_ID:*"
+      }
+    ]
+  },
+
+  "SchedulerTrustPolicy": {
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "Sid": "AllowSchedulerToAssume",
+        "Effect": "Allow",
+        "Principal": { "Service": "scheduler.amazonaws.com" },
+        "Action": "sts:AssumeRole",
+        "Condition": {
+          "StringEquals": { "aws:SourceAccount": "ACCOUNT_ID" }
+        }
+      }
+    ]
+  },
+
+  "SchedulerPermissions": {
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "SidComment": [
+          "One function, one action. The schedule's whole authority is 'start the",
+          "reminder run'; it cannot read the table, cannot send a message, and",
+          "cannot invoke anything else in the account."
+        ],
+        "Sid": "InvokeTheReminderFunction",
+        "Effect": "Allow",
+        "Action": "lambda:InvokeFunction",
+        "Resource": [
+          "arn:aws:lambda:REGION:ACCOUNT_ID:function:FUNCTION_NAME",
+          "arn:aws:lambda:REGION:ACCOUNT_ID:function:FUNCTION_NAME:*"
+        ]
+      }
+    ]
+  }
+}

@@ -10,9 +10,11 @@ actually turned up more often. "We send reminders" is an activity; "reminded pat
 miss fewer appointments" is a result, and only the second is worth a doctor's
 attention.
 
-Deliberately doctor-pressed rather than scheduled: nothing in this deployment runs on
-a timer, so a reminder advertised as firing "the day before" would be advertising
-something that does not happen.
+These tests drive the doctor's button, which is one of the two ways a reminder now goes
+out. The other is an EventBridge Schedule that runs the same function at 18:00 clinic
+time for the next day; its own tests live in ``tests/unit/test_reminder_lambda.py`` and
+``tests/unit/test_reminder_run.py``. Both paths call the same
+``remind_booked_on_day``, so what passes here holds for the scheduled run too.
 """
 
 from __future__ import annotations
